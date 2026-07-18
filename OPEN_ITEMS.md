@@ -117,6 +117,22 @@ Owen** with the chosen (most reversible) interim answer marked.
 5. **Reprint onto partially-used sheets — resolved and shipped** (DL16):
    per-print "Start at label position" control on the label sheet screen.
 
+### 2026-07-18 — M0/M1 gate closed
+
+- **Owen's on-device pass passed; M0/M1 are done. M2 (private-zone sync) is
+  next** — it starts with the CloudKit Development env reset in the Console
+  (Owen's one click) and the DatabasePool switch below.
+- **DL19 — Item-editor "can't type" report was the OS, not the app.** An
+  on-device typing freeze (dead keyboard ~30 s, then stalls) was
+  investigated: with input frozen, the app's main thread sampled fully idle
+  (keystrokes never reached the process), the same stall reproduced in the
+  system Settings app, and the editor path does no work during typing. Root
+  cause: iOS 27 developer beta 3's known keyboard bugs (Owen's phone).
+  Standing rule, same as plan M4: device weirdness gets cross-checked on a
+  stable-OS device before suspecting app code. Also noted: freshly created
+  simulators are unusably laggy until rebooted after first-boot indexing —
+  don't judge app behavior in one.
+
 ## Watch-outs for M2/M3 (from Run 1 review)
 
 - **DatabasePool at M2 start:** switch `AppDatabase.onDisk()` from
