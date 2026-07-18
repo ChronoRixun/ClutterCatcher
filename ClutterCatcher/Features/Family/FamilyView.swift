@@ -206,7 +206,12 @@ struct FamilyView: View {
             await persistShareLocally(savedShare)
         } catch {
             Log.sync.error("Share creation failed: \(String(describing: error))")
-            errorMessage = "Couldn't set up sharing — check that iCloud is reachable and try again."
+            // Name a permanent cause when we can (DL37/DL38 — "try again"
+            // must never be the advice for a dead end like missing schema).
+            let permanent = (error as? CKError)
+                .flatMap { SyncCoordinator.permanentFailureMessage(for: $0.code) }
+            errorMessage = permanent.map { "Couldn't set up sharing — \($0)." }
+                ?? "Couldn't set up sharing — check that iCloud is reachable and try again."
         }
     }
 

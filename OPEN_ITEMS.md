@@ -310,6 +310,25 @@ Owen** with the chosen (most reversible) interim answer marked.
   app" recovers with no relaunch. Queue rows are never dropped by any of
   this.
 
+- **DL38 — `cloudkit.share` is schema too (second gate incident).** After
+  the record types deployed and sync settled, share creation failed on
+  whoGoesThere. Reproduced identically on the stable-OS simulator (DL19
+  rule: not the beta) with the real error: CKError 12/2006 "Cannot create
+  new type **cloudkit.share** in production schema". The share record type
+  is created just-in-time in *Development* the first time a share is saved
+  there — and M3 never exercised sharing in Development, so the Step 0
+  deploy carried the four record types but no share type. Recovery: a
+  temporary Development-pinned build (entitlement + compile condition
+  flipped together, never committed) created one zone-wide share in Dev via
+  the app's own Family flow — JIT-creating the type — then the build was
+  flipped back; the sync-identity fingerprint absorbed both environment
+  hops exactly as designed (reset → re-upload → LWW convergence, catalog
+  untouched). Owen then redeploys the schema once. Rule for the future: a
+  Production schema deploy is only complete after *every* record-producing
+  flow has run once in Development — including sharing. Also: the Family
+  screen's failure alert now names permanent causes instead of suggesting
+  "try again" (extends DL37's classifier to share creation).
+
 ## Questions for Owen
 
 *(none open)*
