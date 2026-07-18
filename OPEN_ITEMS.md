@@ -133,21 +133,92 @@ Owen** with the chosen (most reversible) interim answer marked.
   simulators are unusably laggy until rebooted after first-boot indexing —
   don't judge app behavior in one.
 
+### 2026-07-18 — Run 2 (M2, private-zone sync)
+
+- **DL20 — Two write paths, two context types.** All user-driven writes go
+  through `AppDatabase.performLocalMutation` (`LocalMutation`: stamps
+  `updated_at` and enqueues `pending_changes` in the same transaction);
+  inbound sync goes through `AppDatabase.applyServerChanges` (`ServerApply`:
+  applies rows verbatim, no restamp, no outbound echo). Distinct types, not a
+  flag, so the paths can't be confused. Repositories, Seeder, and catalog
+  reset all ride the local path; local-only `settings` writes stay plain
+  (nothing to stamp or queue).
+- **DL21 — "Untouched since last ack" = no pending row.** The LWW merge
+  takes (local `updated_at`, pending change, server `updated_at`) — the v1
+  schema needs no per-record last-ack column because `pending_changes` rows
+  exist exactly while a local edit is unacked. Ties keep local (both sides
+  re-sending converges on the last upload; the loser then has no pending row
+  and accepts the fetch). A queued delete's `queued_at` is its edit time.
+  Server deletions beat in-flight local edits (both for inbound deletes and
+  `unknownItem` on save) — logged, never silent.
+- **DL22 — Deletes enqueue children explicitly, metadata clears on ack.**
+  Room/container cascades queue item → container → room deletes before the
+  local FK cascade runs. Category deletes first re-save affected items with
+  the reference cleared (tracked saves) — relying on `SET NULL` alone would
+  leave server items pointing at a dead category and FK-break a fresh
+  device's M3 bootstrap. `record_metadata` survives until the delete acks,
+  so reset's delete→reseed collapse (same fixed UUIDs, REPLACE turns the
+  queued delete back into a save) overwrites server records with valid
+  change tags instead of conflicting.
+- **DL23 — The engine's in-memory queue is rebuilt from `pending_changes`
+  via ValueObservation.** Repositories never talk to the coordinator; every
+  commit that touches the queue re-adds the rows to `CKSyncEngine.state`
+  (idempotent), and rows are cleared only on server ack — with a
+  stamp-comparison guard so an edit made while its save was in flight stays
+  queued. Startup re-adds whatever the last run left behind.
+- **DL24 — Inbound FK orphans are buffered, not dropped.** CloudKit fetch
+  batches don't respect parent-child order, so saves apply parents-first per
+  batch and FK failures wait in a coordinator buffer, retried after each
+  batch and once more when the fetch completes; then an item missing only
+  its category is salvaged without the reference, and anything whose parent
+  is genuinely gone is dropped with a log.
+- **DL25 — Account lifecycle.** The engine exists only while
+  `accountStatus == .available`. Sign-out stops sync and keeps data plus
+  bookkeeping (the same user signing back in resumes cleanly). An account
+  *switch* (detected by comparing the stored `userRecordID` at startup, or
+  the engine's switchAccounts event) resets engine state + `record_metadata`
+  — never the catalog, and `pending_changes` survives — then backfill
+  re-queues everything for the new account. Zone deleted / purged /
+  `zoneNotFound` → wipe metadata, drop queued deletes, recreate the zone,
+  re-backfill (single-flight guard; the engine's own send scheduling paces
+  retries).
+- **DL26 — Simulators don't reliably get CloudKit pushes**, so the
+  coordinator also fetches on scene-activation — which is what makes the M2
+  two-device gate (iPhone ↔ simulator) observably snappy. Devices still get
+  real pushes; `registerForRemoteNotifications` runs at startup and
+  CKSyncEngine handles the notifications itself.
+- **DL27 — In-sim no-account verification (gate prep).** On the signed-out
+  simulator: Settings shows "Sync — Off (no iCloud account)", the on-disk
+  store runs in WAL (`DatabasePool` conversion of the M1-era file verified),
+  and a full UI catalog reset queued exactly the expected outbound rows
+  (item delete before container delete; 12 room + 11 category saves for the
+  re-seeded fixed UUIDs) with no engine running and no errors. Also
+  reconfirmed: idb-injected keyboard input is flaky on the iOS 26.5 sim
+  (DL19 family) — taps are reliable, typed text sometimes never lands.
+
+## Questions for Owen
+
+1. **Reset Catalog semantics once the household shares the zone (decide by
+   M3/M4).** Reset now propagates as real deletes+reseeds through sync —
+   correct for one user, but on a shared zone any family member tapping it
+   would erase the household catalog for everyone. Interim (most reversible)
+   answer shipped in M2: behavior kept, footer copy now says it erases from
+   iCloud too. Options for M3: owner-only reset, participant reset = leave +
+   re-hydrate, or keep global reset with scarier confirmation.
+
 ## Watch-outs for M2/M3 (from Run 1 review)
 
-- **DatabasePool at M2 start:** switch `AppDatabase.onDisk()` from
-  `DatabaseQueue` to `DatabasePool` (WAL) at the *start* of M2, before
-  CKSyncEngine writes coexist with UI observation reads.
+- ~~**DatabasePool at M2 start**~~ — done (DL27): `onDisk()` opens a
+  `DatabasePool`, WAL conversion of existing stores verified in-sim; tests
+  stay on in-memory `DatabaseQueue`.
 - **Participant seeding (D12):** `Seeder.seedIfNeeded()` currently runs
   unconditionally on first launch — correct while Owen is the only user. M3's
   share-acceptance path must set the seed flag *before* the first launch
   bootstraps from the shared zone, or a participant device would locally
   seed rooms/categories and later push them into the household zone,
   resurrecting anything Owen had renamed/deleted.
-- **`updated_at` discipline:** every repository write method stamps
-  `updatedAt` by hand today. M2's sync layer should centralize stamping (its
-  outbound hook touches every write anyway) — a forgotten stamp would
-  silently corrupt last-write-wins ordering (D10).
+- ~~**`updated_at` discipline**~~ — done (DL20): stamping lives in
+  `LocalMutation.save` alone; repositories no longer touch timestamps.
 - **Deferred cleanups** (deliberately not done without a compiler on hand):
   extracting the repeated observation-consuming `.task` loop into a helper,
   a shared editor-sheet scaffold for the four CRUD editors, and moving the

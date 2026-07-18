@@ -2,6 +2,7 @@ import SwiftUI
 
 struct SettingsView: View {
     @Environment(\.appDatabase) private var appDatabase
+    @Environment(SyncStatusModel.self) private var syncStatus
 
     @State private var stats = CatalogStats()
     @State private var isConfirmingReset = false
@@ -38,7 +39,7 @@ struct SettingsView: View {
 
                 Section("About") {
                     LabeledContent("Version", value: appVersion)
-                    LabeledContent("Sync", value: "Local only — coming soon")
+                    LabeledContent("Sync", value: syncStatus.label)
                 }
 
                 Section {
@@ -46,7 +47,7 @@ struct SettingsView: View {
                         isConfirmingReset = true
                     }
                 } footer: {
-                    Text("Deletes every room, container, item, and category on this device, then re-applies the starter catalog. Printed labels stop resolving.")
+                    Text("Deletes every room, container, item, and category — from iCloud too, once sync is on — then re-applies the starter catalog. Printed labels stop resolving.")
                 }
             }
             .navigationTitle("Settings")

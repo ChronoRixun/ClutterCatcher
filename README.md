@@ -5,11 +5,15 @@ resolve to what's inside. Native SwiftUI, one household, built with care.
 
 ## Status
 
-**M0 + M1 complete (pending Owen's on-device gate)** — full local app: rooms →
-containers → items with orthogonal categories, live search, QR label
-generation and Avery-style label-sheet printing, VisionKit scanning, and
-`cluttercatcher://c/<uuid>` deep links. No sync yet; that's M2+. The
-authoritative plan lives in `planning/ccv4-plan.md`.
+**M2 implemented (pending Owen's device gate)** — private-database CloudKit
+sync via CKSyncEngine: the whole catalog lives in a custom `Household` zone,
+edits queue through a single tracked write path, conflicts resolve
+last-write-wins, and the app stays fully functional signed out. On top of
+M0+M1's complete local app: rooms → containers → items with orthogonal
+categories, live search, QR label generation and Avery-style label-sheet
+printing, VisionKit scanning, and `cluttercatcher://c/<uuid>` deep links.
+Zone sharing with the family is M3. The authoritative plan lives in
+`planning/ccv4-plan.md`.
 
 ## Toolchain
 

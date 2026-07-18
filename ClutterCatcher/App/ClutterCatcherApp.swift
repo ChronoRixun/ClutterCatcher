@@ -1,17 +1,29 @@
 import SwiftUI
+import UIKit
 
 @main
 struct ClutterCatcherApp: App {
     private let bootResult: Result<AppDatabase, Error>
+    private let syncCoordinator: SyncCoordinator?
     @State private var router = Router()
+    @State private var syncStatus: SyncStatusModel
+    @Environment(\.scenePhase) private var scenePhase
 
     init() {
+        let status = SyncStatusModel()
+        _syncStatus = State(initialValue: status)
         bootResult = Result {
             let database = try AppDatabase.onDisk()
             try Seeder(database: database).seedIfNeeded()
             return database
         }
-        if case .failure(let error) = bootResult {
+        switch bootResult {
+        case .success(let database):
+            // Created here, started from `.task` — the app must be fully
+            // functional before (and without) any CloudKit involvement.
+            syncCoordinator = SyncCoordinator(database: database, status: status)
+        case .failure(let error):
+            syncCoordinator = nil
             Log.app.critical("Database bootstrap failed: \(String(describing: error))")
         }
     }
@@ -23,11 +35,24 @@ struct ClutterCatcherApp: App {
                 RootView()
                     .environment(\.appDatabase, database)
                     .environment(router)
+                    .environment(syncStatus)
                     .onOpenURL { url in
                         router.open(url: url)
                     }
+                    .task {
+                        // CKSyncEngine listens for CloudKit pushes itself;
+                        // the app only has to be registered (plan §3.2).
+                        UIApplication.shared.registerForRemoteNotifications()
+                        await syncCoordinator?.start()
+                    }
             case .failure(let error):
                 BootFailureView(error: error)
+            }
+        }
+        .onChange(of: scenePhase) { _, newPhase in
+            guard newPhase == .active, let syncCoordinator else { return }
+            Task {
+                await syncCoordinator.applicationDidBecomeActive()
             }
         }
     }
