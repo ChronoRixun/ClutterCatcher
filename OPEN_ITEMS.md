@@ -39,7 +39,31 @@ Owen** with the chosen (most reversible) interim answer marked.
   `.entitlements` are defined as properties in `project.yml` and emitted by
   `xcodegen generate`; the `.xcodeproj` and both files are gitignored.
 - **DL9 — Seed flag value is the ISO-8601 apply date**, not a bare "true" —
-  Settings shows when the starter catalog landed.
+  Settings shows when the starter catalog landed (written with
+  `.formatted(.iso8601)`, parsed with the matching `.iso8601` strategy).
+- **DL10 — Room deletion asks first.** Deleting a room cascades to all its
+  containers and items (and in M2+ mirrors as CK deletes for the household),
+  so the swipe/Edit delete is gated behind a confirmation dialog. Container
+  deletion keeps its existing confirmation; item deletes stay swipe-only.
+- **DL11 — Camera permission is requested explicitly.** The Scan tab gates on
+  `DataScannerViewController.isSupported` only; `AVCaptureDevice
+  .requestAccess` runs on first visit (`isAvailable` is false before the
+  prompt, so gating on it would make scanning unreachable). Denied access
+  falls back to manual entry with Settings guidance. The scanner also stops
+  whenever another tab is selected — a successful scan switches tabs, and the
+  capture session must not stay live behind it.
+- **DL12 — Post-review hardening (same run).** An 8-angle self-review pass
+  (no compiler available here) led to: `String(describing:)` in all Logger
+  interpolations (`os.Logger` can't interpolate a bare `any Error`); GRDB
+  added as an explicit test-target dependency; batch delete repository
+  methods (one transaction per gesture); label text clamped + clipped to its
+  cell so long names can't print across sticker boundaries; PDF rendering
+  moved off the main actor; renderer pagination now uses the same
+  `position(forLabelIndex:)` the layout tests exercise; deep links dismiss
+  any open sheets on the Rooms tab; editors surface save failures in an
+  alert instead of only logging; search observation debounced 250 ms;
+  loading states guard empty-state flashes; name trimming centralized in
+  repositories (`String.normalizedName` / `Optional<String>.normalizedNotes`).
 
 ## Questions for Owen
 
@@ -62,6 +86,24 @@ Owen** with the chosen (most reversible) interim answer marked.
    container to a fixed cell position on every future sheet. If you want
    "reprint onto a partially-used sheet" (skipping used cells), say so and
    the layout already supports it — it's a UI affordance away.
+
+## Watch-outs for M2/M3 (from Run 1 review)
+
+- **Participant seeding (D12):** `Seeder.seedIfNeeded()` currently runs
+  unconditionally on first launch — correct while Owen is the only user. M3's
+  share-acceptance path must set the seed flag *before* the first launch
+  bootstraps from the shared zone, or a participant device would locally
+  seed rooms/categories and later push them into the household zone,
+  resurrecting anything Owen had renamed/deleted.
+- **`updated_at` discipline:** every repository write method stamps
+  `updatedAt` by hand today. M2's sync layer should centralize stamping (its
+  outbound hook touches every write anyway) — a forgotten stamp would
+  silently corrupt last-write-wins ordering (D10).
+- **Deferred cleanups** (deliberately not done without a compiler on hand):
+  extracting the repeated observation-consuming `.task` loop into a helper,
+  a shared editor-sheet scaffold for the four CRUD editors, and moving the
+  count-annotated raw SQL onto GRDB associations. All are mechanical and
+  safe to do on-Mac later; none block M1.
 
 ## Environment note — Run 1
 

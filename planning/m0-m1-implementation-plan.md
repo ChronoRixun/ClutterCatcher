@@ -23,7 +23,8 @@ ClutterCatcher/
   Data/
     Database/AppDatabase.swift  # DatabaseWriter wrapper, migrator (schema v1), observation helpers
     Models/Room.swift ·  Category.swift · Container.swift · Item.swift
-    Models/LocalRecords.swift   # Setting, SyncState, RecordMetadata, PendingChange (M2 consumers)
+    Models/Setting.swift        # local-only key/value; other local tables get
+                                # record types in M2 with their first consumer (DL2)
     Repositories/RoomRepository.swift · CategoryRepository.swift ·
                  ContainerRepository.swift · ItemRepository.swift · SearchRepository.swift
     Seed/SeedData.swift         # fixed compiled-in UUIDs (D12)
