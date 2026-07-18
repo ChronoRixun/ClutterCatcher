@@ -11,11 +11,18 @@ struct ScanView: View {
         case undetermined, granted, denied
     }
 
+    /// A scan that couldn't resolve — drives the overlay card. Two flavors:
+    /// the code genuinely isn't in the catalog, or the lookup itself threw
+    /// (the scanner must never die silently on a DB error).
+    private enum ScanProblem {
+        case notFound(scanned: String)
+        case lookupFailed
+    }
+
     @Environment(\.appDatabase) private var appDatabase
     @Environment(Router.self) private var router
 
-    /// A scan that resolved to nothing — drives the not-found overlay.
-    @State private var unknownScan: String?
+    @State private var scanProblem: ScanProblem?
     @State private var manualEntry = ""
     @State private var cameraAccess: CameraAccess = .undetermined
 
@@ -60,11 +67,11 @@ struct ScanView: View {
 
     private var scannerBody: some View {
         ZStack {
-            // Pause while a not-found overlay is up, and stop the capture
+            // Pause while a problem overlay is up, and stop the capture
             // session entirely when another tab is selected (a successful
             // scan switches tabs — the camera must not stay live behind it).
             DataScannerRepresentable(
-                isActive: router.selectedTab == .scan && unknownScan == nil
+                isActive: router.selectedTab == .scan && scanProblem == nil
             ) { payload in
                 handle(scanned: payload)
             }
@@ -72,8 +79,8 @@ struct ScanView: View {
 
             VStack {
                 Spacer()
-                if let unknownScan {
-                    notFoundCard(scanned: unknownScan)
+                if let scanProblem {
+                    problemCard(for: scanProblem)
                 } else {
                     Text("Point at a ClutterCatcher label")
                         .font(.callout)
@@ -107,9 +114,9 @@ struct ScanView: View {
                 }
                 .disabled(manualEntry.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
             }
-            if let unknownScan {
+            if let scanProblem {
                 Section {
-                    notFoundCard(scanned: unknownScan)
+                    problemCard(for: scanProblem)
                         .listRowBackground(Color.clear)
                 }
             }
@@ -120,7 +127,7 @@ struct ScanView: View {
 
     private func handle(scanned payload: String) {
         guard let parsed = QRPayload.parse(scanned: payload) else {
-            unknownScan = payload
+            scanProblem = .notFound(scanned: payload)
             return
         }
         let database = appDatabase
@@ -137,32 +144,43 @@ struct ScanView: View {
                     }
                 }
                 if let route {
-                    unknownScan = nil
+                    scanProblem = nil
                     manualEntry = ""
                     router.navigate(to: route)
                 } else {
-                    unknownScan = payload
+                    scanProblem = .notFound(scanned: payload)
                 }
             } catch {
                 Log.data.error("Scan lookup failed: \(String(describing: error))")
+                scanProblem = .lookupFailed
             }
         }
     }
 
-    private func notFoundCard(scanned: String) -> some View {
+    private func problemCard(for problem: ScanProblem) -> some View {
         VStack(spacing: Tokens.spacingM) {
-            Label("Not in Your Catalog", systemImage: "questionmark.square.dashed")
-                .font(.headline)
-            Text("This code isn't linked to anything in your catalog. It may have been deleted, or it isn't a ClutterCatcher label.")
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
-                .multilineTextAlignment(.center)
-            Text(scanned)
-                .font(.caption.monospaced())
-                .foregroundStyle(.secondary)
-                .lineLimit(2)
+            switch problem {
+            case .notFound(let scanned):
+                Label("Not in Your Catalog", systemImage: "questionmark.square.dashed")
+                    .font(.headline)
+                Text("This code isn't linked to anything in your catalog. It may have been deleted, or it isn't a ClutterCatcher label.")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+                Text(scanned)
+                    .font(.caption.monospaced())
+                    .foregroundStyle(.secondary)
+                    .lineLimit(2)
+            case .lookupFailed:
+                Label("Couldn't Look That Up", systemImage: "exclamationmark.triangle")
+                    .font(.headline)
+                Text("Something went wrong reading your catalog — try again.")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+            }
             Button("Scan Again") {
-                unknownScan = nil
+                scanProblem = nil
             }
             .buttonStyle(.borderedProminent)
         }

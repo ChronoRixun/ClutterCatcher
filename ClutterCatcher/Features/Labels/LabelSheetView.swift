@@ -12,6 +12,8 @@ struct LabelSheetView: View {
     @State private var candidates: [ContainerCandidate] = []
     @State private var selectedIDs: Set<String>
     @State private var specID = LabelSheetSpec.avery5163.id
+    /// 1-based cell where printing starts; a per-print choice, never persisted.
+    @State private var startPosition = 1
     @State private var generated: GeneratedLabelPDF?
 
     /// Stale preselected ids (a deleted container) are harmless: generation
@@ -38,6 +40,14 @@ struct LabelSheetView: View {
                     }
                     .pickerStyle(.inline)
                     .labelsHidden()
+                }
+
+                Section {
+                    Stepper(value: $startPosition, in: 1...spec.cellsPerPage) {
+                        LabeledContent("Start at label position", value: "\(startPosition)")
+                    }
+                } footer: {
+                    Text("Skips already-used stickers on a partially-used sheet.")
                 }
 
                 Section {
@@ -71,7 +81,7 @@ struct LabelSheetView: View {
                     Text("Containers")
                 } footer: {
                     if !selectedIDs.isEmpty {
-                        Text("^[\(selectedIDs.count) label](inflect: true) on ^[\(spec.pageCount(forLabelCount: selectedIDs.count)) sheet](inflect: true).")
+                        Text("^[\(selectedIDs.count) label](inflect: true) on ^[\(spec.pageCount(forLabelCount: selectedIDs.count, startingAt: startPosition - 1)) sheet](inflect: true).")
                     }
                 }
             }
@@ -115,6 +125,8 @@ struct LabelSheetView: View {
                 }
             }
             .onChange(of: specID) { _, newValue in
+                // A position picked for one grid is meaningless on another.
+                startPosition = 1
                 Task {
                     try? await settingsRepository.setValue(
                         newValue, forKey: Setting.labelSheetSpecKey)
@@ -135,6 +147,7 @@ struct LabelSheetView: View {
     /// forever; the PDF then renders in slot order.
     private func generatePDF() {
         let spec = spec
+        let startOffset = startPosition - 1
         let selection = candidates.filter { selectedIDs.contains($0.id) }
         Task {
             do {
@@ -156,7 +169,7 @@ struct LabelSheetView: View {
                 // Rendering many QR codes is real work — keep it off the
                 // main actor so the sheet stays responsive.
                 let data = try await Task.detached {
-                    let data = renderer.renderPDF(labels: labels)
+                    let data = renderer.renderPDF(labels: labels, startOffset: startOffset)
                     try data.write(to: url, options: .atomic)
                     return data
                 }.value

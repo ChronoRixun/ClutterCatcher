@@ -40,9 +40,10 @@ struct SettingsRepository: Sendable {
         }
     }
 
-    /// Deletes the entire catalog and re-applies the starter seed. Local-only
-    /// tables other than the seed flag are untouched. Destructive — the
-    /// Settings screen gates this behind a confirmation.
+    /// Deletes the entire catalog and re-applies the starter seed, atomically
+    /// — one transaction, so no observer ever sees the catalog half-gone.
+    /// Local-only tables other than the seed flag are untouched. Destructive
+    /// — the Settings screen gates this behind a confirmation.
     func resetCatalogAndReseed() async throws {
         try await database.writer.write { db in
             try Item.deleteAll(db)
@@ -50,7 +51,7 @@ struct SettingsRepository: Sendable {
             try Room.deleteAll(db)
             try Category.deleteAll(db)
             _ = try Setting.deleteOne(db, key: Setting.seedAppliedKey)
+            try Seeder.seedIfNeeded(db)
         }
-        try Seeder(database: database).seedIfNeeded()
     }
 }

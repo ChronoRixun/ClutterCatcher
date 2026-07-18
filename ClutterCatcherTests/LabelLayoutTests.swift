@@ -1,5 +1,6 @@
 import CoreGraphics
 import Foundation
+import PDFKit
 import Testing
 @testable import ClutterCatcher
 
@@ -51,6 +52,48 @@ import Testing
                 }
             }
         }
+    }
+
+    // MARK: Start offset (reprint onto a partially-used sheet, OPEN_ITEMS Q5)
+
+    @Test func startOffsetZeroLeavesMappingUnchanged() {
+        let spec = LabelSheetSpec.avery5163
+        #expect(spec.position(forLabelIndex: 0, startingAt: 0) == (0, 0))
+        #expect(spec.position(forLabelIndex: 9, startingAt: 0) == (0, 9))
+        #expect(spec.position(forLabelIndex: 12, startingAt: 0) == (1, 2))
+        #expect(spec.pageCount(forLabelCount: 10, startingAt: 0) == 1)
+    }
+
+    @Test func startOffsetShiftsLabelsIntoLaterCells() {
+        let spec = LabelSheetSpec.avery5163
+        #expect(spec.position(forLabelIndex: 0, startingAt: 3) == (0, 3))
+        #expect(spec.position(forLabelIndex: 6, startingAt: 3) == (0, 9))
+        #expect(spec.position(forLabelIndex: 7, startingAt: 3) == (1, 0))
+    }
+
+    @Test func pageCountAccountsForStartOffset() {
+        let spec = LabelSheetSpec.avery5163
+        #expect(spec.pageCount(forLabelCount: 7, startingAt: 3) == 1)
+        #expect(spec.pageCount(forLabelCount: 8, startingAt: 3) == 2)
+        #expect(spec.pageCount(forLabelCount: 0, startingAt: 5) == 0)
+        #expect(spec.pageCount(forLabelCount: 1, startingAt: 9) == 1)
+        #expect(spec.pageCount(forLabelCount: 2, startingAt: 9) == 2)
+        #expect(spec.pageCount(forLabelCount: 21, startingAt: 9) == 3)
+    }
+
+    @Test func renderedPDFHonorsStartOffsetPagination() {
+        let spec = LabelSheetSpec.avery5163
+        let labels = (0..<8).map {
+            LabelPDFRenderer.Label(
+                payload: .container(UUID()),
+                title: "Bin \($0)",
+                subtitle: nil)
+        }
+        let renderer = LabelPDFRenderer(spec: spec)
+        let flush = PDFDocument(data: renderer.renderPDF(labels: labels))
+        let offset = PDFDocument(data: renderer.renderPDF(labels: labels, startOffset: 3))
+        #expect(flush?.pageCount == 1)
+        #expect(offset?.pageCount == 2)
     }
 
     @Test func cellRowMajorOrdering() {

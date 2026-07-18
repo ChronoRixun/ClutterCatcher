@@ -35,14 +35,17 @@ struct LabelSheetSpec: Identifiable, Equatable, Sendable {
             height: cellSize.height)
     }
 
-    func pageCount(forLabelCount count: Int) -> Int {
+    /// `offset` leading cells on page one stay blank — reprinting onto a
+    /// partially-used sheet skips its used stickers.
+    func pageCount(forLabelCount count: Int, startingAt offset: Int = 0) -> Int {
         guard count > 0 else { return 0 }
-        return (count + cellsPerPage - 1) / cellsPerPage
+        return (offset + count + cellsPerPage - 1) / cellsPerPage
     }
 
-    /// Splits a 0-based label position into (page, cell-on-page).
-    func position(forLabelIndex index: Int) -> (page: Int, cell: Int) {
-        (index / cellsPerPage, index % cellsPerPage)
+    /// Splits a 0-based label position into (page, cell-on-page), after
+    /// skipping `offset` cells at the start of page one.
+    func position(forLabelIndex index: Int, startingAt offset: Int = 0) -> (page: Int, cell: Int) {
+        ((index + offset) / cellsPerPage, (index + offset) % cellsPerPage)
     }
 
     // MARK: Presets (US Letter, 612 × 792 pt)

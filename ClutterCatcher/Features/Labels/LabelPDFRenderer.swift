@@ -13,8 +13,10 @@ struct LabelPDFRenderer: Sendable {
     let spec: LabelSheetSpec
 
     /// Labels fill cells sequentially, row-major, page by page — the same
-    /// `position(forLabelIndex:)` mapping the layout tests exercise.
-    func renderPDF(labels: [Label]) -> Data {
+    /// `position(forLabelIndex:startingAt:)` mapping the layout tests
+    /// exercise. `startOffset` leaves that many leading cells blank on page
+    /// one (reprint onto a partially-used sheet).
+    func renderPDF(labels: [Label], startOffset: Int = 0) -> Data {
         let format = UIGraphicsPDFRendererFormat()
         format.documentInfo = [
             kCGPDFContextTitle as String: "ClutterCatcher Labels",
@@ -27,7 +29,7 @@ struct LabelPDFRenderer: Sendable {
         return renderer.pdfData { context in
             var currentPage = -1
             for (index, label) in labels.enumerated() {
-                let (page, cell) = spec.position(forLabelIndex: index)
+                let (page, cell) = spec.position(forLabelIndex: index, startingAt: startOffset)
                 if page != currentPage {
                     context.beginPage()
                     currentPage = page

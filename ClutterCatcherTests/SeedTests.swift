@@ -9,9 +9,12 @@ import Testing
         try Seeder(database: database).seedIfNeeded()
 
         try database.writer.read { db in
-            #expect(try Room.fetchCount(db) == SeedData.rooms.count)
-            #expect(try Category.fetchCount(db) == SeedData.categories.count)
-            #expect(try Setting.fetchOne(db, key: Setting.seedAppliedKey) != nil)
+            let roomCount = try Room.fetchCount(db)
+            #expect(roomCount == SeedData.rooms.count)
+            let categoryCount = try Category.fetchCount(db)
+            #expect(categoryCount == SeedData.categories.count)
+            let seedFlag = try Setting.fetchOne(db, key: Setting.seedAppliedKey)
+            #expect(seedFlag != nil)
         }
     }
 
@@ -22,8 +25,10 @@ import Testing
         try seeder.seedIfNeeded()
 
         try database.writer.read { db in
-            #expect(try Room.fetchCount(db) == SeedData.rooms.count)
-            #expect(try Category.fetchCount(db) == SeedData.categories.count)
+            let roomCount = try Room.fetchCount(db)
+            #expect(roomCount == SeedData.rooms.count)
+            let categoryCount = try Category.fetchCount(db)
+            #expect(categoryCount == SeedData.categories.count)
         }
     }
 
@@ -33,10 +38,12 @@ import Testing
 
         try database.writer.read { db in
             for seed in SeedData.rooms {
-                #expect(try Room.exists(db, key: seed.id), "missing seed room \(seed.name)")
+                let exists = try Room.exists(db, key: seed.id)
+                #expect(exists, "missing seed room \(seed.name)")
             }
             for seed in SeedData.categories {
-                #expect(try Category.exists(db, key: seed.id), "missing seed category \(seed.name)")
+                let exists = try Category.exists(db, key: seed.id)
+                #expect(exists, "missing seed category \(seed.name)")
             }
         }
     }
@@ -47,6 +54,41 @@ import Testing
         for id in allIDs {
             #expect(UUID(uuidString: id) != nil, "malformed seed id \(id)")
             #expect(id == id.uppercased(), "seed id not uppercase: \(id)")
+        }
+    }
+
+    /// Reset wipes user data and lands back on exactly the pristine seed.
+    @Test func resetRestoresPristineSeedCatalog() async throws {
+        let database = try AppDatabase.inMemory()
+        try Seeder(database: database).seedIfNeeded()
+
+        let customRoomID = AppDatabase.newID()
+        try await database.writer.write { db in
+            let now = Date()
+            try Room(
+                id: customRoomID, name: "Attic", sortOrder: 99, icon: "house",
+                createdAt: now, updatedAt: now, createdBy: nil
+            ).insert(db)
+            try Container(
+                id: AppDatabase.newID(), roomId: customRoomID, name: "Box",
+                notes: nil, labelSlot: nil,
+                createdAt: now, updatedAt: now, createdBy: nil
+            ).insert(db)
+        }
+
+        try await SettingsRepository(database: database).resetCatalogAndReseed()
+
+        try await database.writer.read { db in
+            let roomCount = try Room.fetchCount(db)
+            #expect(roomCount == SeedData.rooms.count)
+            let containerCount = try Container.fetchCount(db)
+            #expect(containerCount == 0)
+            let categoryCount = try Category.fetchCount(db)
+            #expect(categoryCount == SeedData.categories.count)
+            let customSurvived = try Room.exists(db, key: customRoomID)
+            #expect(!customSurvived)
+            let seedFlag = try Setting.fetchOne(db, key: Setting.seedAppliedKey)
+            #expect(seedFlag != nil)
         }
     }
 
@@ -71,7 +113,8 @@ import Testing
         try Seeder(database: database).seedIfNeeded()
 
         try database.writer.read { db in
-            #expect(try Room.fetchCount(db) == SeedData.rooms.count)
+            let roomCount = try Room.fetchCount(db)
+            #expect(roomCount == SeedData.rooms.count)
             let names = try String.fetchAll(
                 db, sql: "SELECT name FROM rooms WHERE id = ?", arguments: [survivor.id])
             #expect(names == [survivor.name])

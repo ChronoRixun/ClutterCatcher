@@ -20,15 +20,21 @@ enum SeedData {
         let colorToken: String
     }
 
+    // Owen's list, 2026-07-17 (OPEN_ITEMS Q1). Renamed rooms keep their
+    // original UUIDs — nothing shipped, so recordName continuity is free.
     static let rooms: [SeedRoom] = [
         SeedRoom(id: "24402771-2003-49A1-B676-A16C284102B3", name: "Kitchen", icon: "fork.knife"),
         SeedRoom(id: "58BBB191-042C-499D-900E-7D71B17176E2", name: "Living Room", icon: "sofa"),
         SeedRoom(id: "E1FE8661-F994-42F7-886F-4A9616DCC78E", name: "Office", icon: "lamp.desk"),
-        SeedRoom(id: "5722A213-22B8-4293-BE7F-4987C2BAC4B7", name: "Primary Bedroom", icon: "bed.double"),
-        SeedRoom(id: "FCB88EE7-64D0-4104-B4B6-A78F3DEE4361", name: "Andrew's Room", icon: "gamecontroller"),
-        SeedRoom(id: "14EB0182-8BDD-4D8C-937D-17FBD825AFD1", name: "Michael's Room", icon: "books.vertical"),
+        SeedRoom(id: "5722A213-22B8-4293-BE7F-4987C2BAC4B7", name: "Master Bedroom", icon: "bed.double"),
+        SeedRoom(id: "B4F39C44-54E2-4B05-A6B2-C4E5224F8E37", name: "Master Bedroom Closet", icon: "tshirt"),
+        SeedRoom(id: "FCB88EE7-64D0-4104-B4B6-A78F3DEE4361", name: "Andrew's Closet", icon: "tshirt"),
+        SeedRoom(id: "14EB0182-8BDD-4D8C-937D-17FBD825AFD1", name: "Michael's Closet", icon: "tshirt"),
         SeedRoom(id: "D39729C3-6A8A-41E5-92FC-36D97DACB7A8", name: "Garage", icon: "car"),
         SeedRoom(id: "42047207-1C4B-49CB-99EA-76117B458C9E", name: "Basement", icon: "stairs"),
+        SeedRoom(id: "0AFE32D0-0BD2-4A4F-8E65-AFF06B323927", name: "Shed (Upper Door)", icon: "wrench.and.screwdriver"),
+        SeedRoom(id: "0D00693D-109F-4330-B5DC-969E68C6E922", name: "Shed (Upper Back)", icon: "leaf"),
+        SeedRoom(id: "6C1E08B0-12A3-4D6F-A6E1-375FF7144AD4", name: "Laundry", icon: "washer"),
     ]
 
     static let categories: [SeedCategory] = [
