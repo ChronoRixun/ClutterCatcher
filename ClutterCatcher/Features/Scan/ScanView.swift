@@ -1,31 +1,58 @@
+import AVFoundation
 import SwiftUI
 import VisionKit
 
 /// Scan a printed label to jump to its container. Accepts the
-/// `cluttercatcher://c/<uuid>` payload or a bare UUID (plan §3.4). On
-/// simulators (no camera scanning) a manual-entry field stands in.
+/// `cluttercatcher://c/<uuid>` payload or a bare UUID (plan §3.4). Falls back
+/// to manual code entry when live scanning can't run (simulator, or camera
+/// access denied).
 struct ScanView: View {
+    private enum CameraAccess {
+        case undetermined, granted, denied
+    }
+
     @Environment(\.appDatabase) private var appDatabase
     @Environment(Router.self) private var router
 
     /// A scan that resolved to nothing — drives the not-found overlay.
     @State private var unknownScan: String?
     @State private var manualEntry = ""
-
-    private var scannerAvailable: Bool {
-        DataScannerViewController.isSupported && DataScannerViewController.isAvailable
-    }
+    @State private var cameraAccess: CameraAccess = .undetermined
 
     var body: some View {
         NavigationStack {
             Group {
-                if scannerAvailable {
-                    scannerBody
+                if !DataScannerViewController.isSupported {
+                    manualEntryBody(
+                        reason: "Live scanning needs a device camera.")
                 } else {
-                    manualEntryBody
+                    switch cameraAccess {
+                    case .undetermined:
+                        ProgressView()
+                    case .granted:
+                        scannerBody
+                    case .denied:
+                        manualEntryBody(
+                            reason: "Camera access is off for ClutterCatcher — enable it in Settings to scan labels.")
+                    }
                 }
             }
             .navigationTitle("Scan")
+        }
+        .task {
+            await requestCameraAccessIfNeeded()
+        }
+    }
+
+    private func requestCameraAccessIfNeeded() async {
+        guard DataScannerViewController.isSupported else { return }
+        switch AVCaptureDevice.authorizationStatus(for: .video) {
+        case .authorized:
+            cameraAccess = .granted
+        case .notDetermined:
+            cameraAccess = await AVCaptureDevice.requestAccess(for: .video) ? .granted : .denied
+        default:
+            cameraAccess = .denied
         }
     }
 
@@ -33,7 +60,12 @@ struct ScanView: View {
 
     private var scannerBody: some View {
         ZStack {
-            DataScannerRepresentable(isActive: unknownScan == nil) { payload in
+            // Pause while a not-found overlay is up, and stop the capture
+            // session entirely when another tab is selected (a successful
+            // scan switches tabs — the camera must not stay live behind it).
+            DataScannerRepresentable(
+                isActive: router.selectedTab == .scan && unknownScan == nil
+            ) { payload in
                 handle(scanned: payload)
             }
             .ignoresSafeArea()
@@ -54,15 +86,15 @@ struct ScanView: View {
         }
     }
 
-    // MARK: Manual path (simulator, or camera unavailable)
+    // MARK: Manual path
 
-    private var manualEntryBody: some View {
+    private func manualEntryBody(reason: String) -> some View {
         Form {
             Section {
                 ContentUnavailableView {
                     Label("Camera Scanning Unavailable", systemImage: "qrcode.viewfinder")
                 } description: {
-                    Text("Live scanning needs a device camera. Paste a label code below instead — either the cluttercatcher:// link or the bare UUID.")
+                    Text("\(reason) Paste a label code below instead — either the cluttercatcher:// link or the bare UUID.")
                 }
             }
             Section("Label code") {
@@ -112,7 +144,7 @@ struct ScanView: View {
                     unknownScan = payload
                 }
             } catch {
-                Log.data.error("Scan lookup failed: \(error)")
+                Log.data.error("Scan lookup failed: \(String(describing: error))")
             }
         }
     }

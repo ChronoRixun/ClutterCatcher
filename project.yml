@@ -81,6 +81,10 @@ targets:
       - path: ClutterCatcherTests
     dependencies:
       - target: ClutterCatcher
+      # Tests import GRDB directly; without this the test module has no
+      # import path for it.
+      - package: GRDB
+        product: GRDB
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.rixun.cluttercatcher.tests

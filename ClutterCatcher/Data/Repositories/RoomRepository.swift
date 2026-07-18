@@ -51,7 +51,8 @@ struct RoomRepository: Sendable {
 
     @discardableResult
     func createRoom(name: String, icon: String?) async throws -> Room {
-        try await database.writer.write { db in
+        let name = name.normalizedName
+        return try await database.writer.write { db in
             let nextSortOrder = try Int.fetchOne(
                 db, sql: "SELECT COALESCE(MAX(sort_order), -1) + 1 FROM rooms") ?? 0
             let now = Date()
@@ -70,6 +71,7 @@ struct RoomRepository: Sendable {
 
     func updateRoom(_ room: Room) async throws {
         var room = room
+        room.name = room.name.normalizedName
         room.updatedAt = Date()
         try await database.writer.write { [room] db in
             try room.update(db)
@@ -92,10 +94,11 @@ struct RoomRepository: Sendable {
         }
     }
 
-    /// Deletes a room; containers and their items go with it (FK cascade).
-    func deleteRoom(id: String) async throws {
+    /// Deletes rooms in one transaction; containers and their items go with
+    /// them (FK cascade).
+    func deleteRooms(ids: [String]) async throws {
         _ = try await database.writer.write { db in
-            try Room.deleteOne(db, key: id)
+            try Room.deleteAll(db, keys: ids)
         }
     }
 }

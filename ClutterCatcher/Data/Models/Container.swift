@@ -2,8 +2,9 @@ import Foundation
 import GRDB
 
 /// A physical container — bin, drawer, shelf, box — living in one room.
-/// Containers are what printed QR labels resolve to; `labelSlot` records the
-/// position the label was printed at on a label sheet (nullable until printed).
+/// Containers are what printed QR labels resolve to; `labelSlot` is a stable
+/// label number assigned at first print (global monotonic sequence, see
+/// OPEN_ITEMS DL7 — it is not a sheet cell position), nil until printed.
 struct Container: Identifiable, Equatable, Sendable, Codable {
     var id: String
     var roomId: String

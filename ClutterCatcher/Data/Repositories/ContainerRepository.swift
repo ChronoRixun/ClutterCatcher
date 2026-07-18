@@ -111,13 +111,15 @@ struct ContainerRepository: Sendable {
 
     @discardableResult
     func createContainer(roomID: String, name: String, notes: String?) async throws -> Container {
-        try await database.writer.write { db in
+        let name = name.normalizedName
+        let notes = notes.normalizedNotes
+        return try await database.writer.write { db in
             let now = Date()
             let container = Container(
                 id: AppDatabase.newID(),
                 roomId: roomID,
                 name: name,
-                notes: Self.normalized(notes),
+                notes: notes,
                 labelSlot: nil,
                 createdAt: now,
                 updatedAt: now,
@@ -129,17 +131,19 @@ struct ContainerRepository: Sendable {
 
     func updateContainer(_ container: Container) async throws {
         var container = container
-        container.notes = Self.normalized(container.notes)
+        container.name = container.name.normalizedName
+        container.notes = container.notes.normalizedNotes
         container.updatedAt = Date()
         try await database.writer.write { [container] db in
             try container.update(db)
         }
     }
 
-    /// Deletes a container; its items go with it (FK cascade).
-    func deleteContainer(id: String) async throws {
+    /// Deletes containers in one transaction; their items go with them
+    /// (FK cascade).
+    func deleteContainers(ids: [String]) async throws {
         _ = try await database.writer.write { db in
-            try Container.deleteOne(db, key: id)
+            try Container.deleteAll(db, keys: ids)
         }
     }
 
@@ -169,11 +173,5 @@ struct ContainerRepository: Sendable {
             }
             return slots
         }
-    }
-
-    private static func normalized(_ notes: String?) -> String? {
-        guard let trimmed = notes?.trimmingCharacters(in: .whitespacesAndNewlines),
-              !trimmed.isEmpty else { return nil }
-        return trimmed
     }
 }

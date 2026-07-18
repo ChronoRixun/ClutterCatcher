@@ -34,7 +34,7 @@ struct SettingsRepository: Sendable {
             stats.itemCount = try Item.fetchCount(db)
             stats.categoryCount = try Category.fetchCount(db)
             if let raw = try Setting.fetchOne(db, key: Setting.seedAppliedKey)?.value {
-                stats.seedAppliedAt = ISO8601DateFormatter().date(from: raw)
+                stats.seedAppliedAt = try? Date(raw, strategy: .iso8601)
             }
             return stats
         }

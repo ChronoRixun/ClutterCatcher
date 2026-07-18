@@ -79,10 +79,10 @@ struct ContainerDetailView: View {
             Button("Delete Container", role: .destructive) {
                 Task {
                     do {
-                        try await containerRepository.deleteContainer(id: containerID)
-                        dismiss()
+                        // The observation's nil emission pops this screen.
+                        try await containerRepository.deleteContainers(ids: [containerID])
                     } catch {
-                        Log.data.error("Container delete failed: \(error)")
+                        Log.data.error("Container delete failed: \(String(describing: error))")
                     }
                 }
             }
@@ -90,11 +90,17 @@ struct ContainerDetailView: View {
         .task {
             do {
                 for try await value in containerRepository.observeDetail(containerID: containerID) {
+                    let hadDetail = detail != nil
                     detail = value
                     detailLoaded = true
+                    if hadDetail && value == nil {
+                        // Deleted while on screen — leave rather than
+                        // flipping into the not-found state.
+                        dismiss()
+                    }
                 }
             } catch {
-                Log.data.error("Container detail observation failed: \(error)")
+                Log.data.error("Container detail observation failed: \(String(describing: error))")
             }
         }
     }
@@ -126,11 +132,9 @@ struct ContainerDetailView: View {
                         let ids = offsets.map { detail.items[$0].item.id }
                         Task {
                             do {
-                                for id in ids {
-                                    try await itemRepository.deleteItem(id: id)
-                                }
+                                try await itemRepository.deleteItems(ids: ids)
                             } catch {
-                                Log.data.error("Item delete failed: \(error)")
+                                Log.data.error("Item delete failed: \(String(describing: error))")
                             }
                         }
                     }
@@ -195,7 +199,7 @@ private struct QRLabelPreview: View {
                 }
                 VStack(alignment: .leading, spacing: Tokens.spacingS) {
                     if let slot = container.labelSlot {
-                        Text("Label slot #\(slot)")
+                        Text("Label #\(slot)")
                             .font(.subheadline)
                     } else {
                         Text("Not printed yet")

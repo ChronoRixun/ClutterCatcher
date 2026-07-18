@@ -6,6 +6,7 @@ struct CategoriesView: View {
     @Environment(\.dismiss) private var dismiss
 
     @State private var entries: [CategoryListEntry] = []
+    @State private var entriesLoaded = false
     @State private var editingCategory: Category?
     @State private var isAddingCategory = false
 
@@ -13,7 +14,9 @@ struct CategoriesView: View {
 
     var body: some View {
         Group {
-            if entries.isEmpty {
+            if !entriesLoaded {
+                ProgressView()
+            } else if entries.isEmpty {
                 ContentUnavailableView {
                     Label("No Categories", systemImage: "tag")
                 } description: {
@@ -46,11 +49,9 @@ struct CategoriesView: View {
                         let ids = offsets.map { entries[$0].category.id }
                         Task {
                             do {
-                                for id in ids {
-                                    try await repository.deleteCategory(id: id)
-                                }
+                                try await repository.deleteCategories(ids: ids)
                             } catch {
-                                Log.data.error("Category delete failed: \(error)")
+                                Log.data.error("Category delete failed: \(String(describing: error))")
                             }
                         }
                     }
@@ -79,9 +80,10 @@ struct CategoriesView: View {
             do {
                 for try await value in repository.observeCategoryList() {
                     entries = value
+                    entriesLoaded = true
                 }
             } catch {
-                Log.data.error("Category list observation failed: \(error)")
+                Log.data.error("Category list observation failed: \(String(describing: error))")
             }
         }
     }

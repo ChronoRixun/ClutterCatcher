@@ -2,8 +2,9 @@ import UIKit
 
 /// Renders a paginated label-sheet PDF: one QR label per grid cell, laid out
 /// by a `LabelSheetSpec`, via `UIGraphicsPDFRenderer` (plan §3.4).
-struct LabelPDFRenderer {
-    struct Label {
+/// Rendering is pure and safe off the main actor.
+struct LabelPDFRenderer: Sendable {
+    struct Label: Sendable {
         let payload: QRPayload
         let title: String
         let subtitle: String?
@@ -11,7 +12,8 @@ struct LabelPDFRenderer {
 
     let spec: LabelSheetSpec
 
-    /// Labels fill cells sequentially, row-major, page by page.
+    /// Labels fill cells sequentially, row-major, page by page — the same
+    /// `position(forLabelIndex:)` mapping the layout tests exercise.
     func renderPDF(labels: [Label]) -> Data {
         let format = UIGraphicsPDFRendererFormat()
         format.documentInfo = [
@@ -23,13 +25,14 @@ struct LabelPDFRenderer {
             format: format)
 
         return renderer.pdfData { context in
-            for pageIndex in 0..<spec.pageCount(forLabelCount: labels.count) {
-                context.beginPage()
-                let pageStart = pageIndex * spec.cellsPerPage
-                let pageLabels = labels[pageStart..<min(pageStart + spec.cellsPerPage, labels.count)]
-                for (offset, label) in pageLabels.enumerated() {
-                    draw(label, in: spec.cellRect(at: offset), context: context.cgContext)
+            var currentPage = -1
+            for (index, label) in labels.enumerated() {
+                let (page, cell) = spec.position(forLabelIndex: index)
+                if page != currentPage {
+                    context.beginPage()
+                    currentPage = page
                 }
+                draw(label, in: spec.cellRect(at: cell), context: context.cgContext)
             }
         }
     }
@@ -74,10 +77,14 @@ struct LabelPDFRenderer {
             .foregroundColor: UIColor.black,
             .paragraphStyle: paragraph,
         ])
-        let titleBounds = title.boundingRect(
-            with: CGSize(width: textRect.width, height: textRect.height),
-            options: [.usesLineFragmentOrigin],
-            context: nil)
+        // A long name must never bleed into the neighboring sticker: cap the
+        // title at two lines, the subtitle at one, and hard-clip to the cell.
+        let titleHeight = min(
+            title.boundingRect(
+                with: CGSize(width: textRect.width, height: textRect.height),
+                options: [.usesLineFragmentOrigin],
+                context: nil).height,
+            ceil(titleFont.lineHeight * 2))
 
         var subtitle: NSAttributedString?
         var subtitleHeight: CGFloat = 0
@@ -88,25 +95,27 @@ struct LabelPDFRenderer {
                 .paragraphStyle: paragraph,
             ])
             subtitle = attributed
-            subtitleHeight = attributed.boundingRect(
-                with: CGSize(width: textRect.width, height: textRect.height),
-                options: [.usesLineFragmentOrigin],
-                context: nil).height
+            subtitleHeight = ceil(subtitleFont.lineHeight)
         }
 
+        context.saveGState()
+        context.clip(to: cell)
+
         // Vertically center the text block beside the QR square.
-        let blockHeight = titleBounds.height + (subtitle == nil ? 0 : 2 + subtitleHeight)
+        let blockHeight = titleHeight + (subtitle == nil ? 0 : 2 + subtitleHeight)
         var cursorY = textRect.minY + max(0, (textRect.height - blockHeight) / 2)
 
         title.draw(
-            with: CGRect(x: textRect.minX, y: cursorY, width: textRect.width, height: titleBounds.height),
+            with: CGRect(x: textRect.minX, y: cursorY, width: textRect.width, height: titleHeight),
             options: [.usesLineFragmentOrigin],
             context: nil)
-        cursorY += titleBounds.height + 2
+        cursorY += titleHeight + 2
 
         subtitle?.draw(
             with: CGRect(x: textRect.minX, y: cursorY, width: textRect.width, height: subtitleHeight),
             options: [.usesLineFragmentOrigin],
             context: nil)
+
+        context.restoreGState()
     }
 }

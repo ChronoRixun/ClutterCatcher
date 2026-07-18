@@ -43,9 +43,11 @@ struct Seeder: Sendable {
                 try category.insert(db, onConflict: .ignore)
             }
 
+            // Parsed back by SettingsRepository with the matching .iso8601
+            // parse strategy.
             try Setting(
                 key: Setting.seedAppliedKey,
-                value: ISO8601DateFormatter().string(from: now)
+                value: now.formatted(.iso8601)
             ).insert(db, onConflict: .replace)
         }
     }

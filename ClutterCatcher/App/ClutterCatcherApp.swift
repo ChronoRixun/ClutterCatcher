@@ -12,7 +12,7 @@ struct ClutterCatcherApp: App {
             return database
         }
         if case .failure(let error) = bootResult {
-            Log.app.critical("Database bootstrap failed: \(error)")
+            Log.app.critical("Database bootstrap failed: \(String(describing: error))")
         }
     }
 

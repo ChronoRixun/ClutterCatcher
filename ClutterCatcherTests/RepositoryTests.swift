@@ -28,8 +28,9 @@ import Testing
     @Test func roomCreateAssignsSequentialSortOrder() async throws {
         let database = try makeDatabase()
         let rooms = RoomRepository(database: database)
-        let first = try await rooms.createRoom(name: "Garage", icon: "car")
+        let first = try await rooms.createRoom(name: "  Garage  ", icon: "car")
         let second = try await rooms.createRoom(name: "Attic", icon: nil)
+        #expect(first.name == "Garage", "repositories own name trimming")
         #expect(first.sortOrder == 0)
         #expect(second.sortOrder == 1)
         #expect(UUID(uuidString: first.id) != nil)
@@ -39,12 +40,15 @@ import Testing
         let database = try makeDatabase()
         let rooms = RoomRepository(database: database)
         let created = try await rooms.createRoom(name: "Garage", icon: "car")
+        // Outlast both the Date resolution and GRDB's millisecond storage
+        // truncation, so a strict > proves the update actually re-stamped.
+        try await Task.sleep(for: .milliseconds(20))
         var edited = created
         edited.name = "Workshop"
         try await rooms.updateRoom(edited)
         let fetched = try await rooms.allRooms()
         #expect(fetched.map(\.name) == ["Workshop"])
-        #expect(fetched[0].updatedAt >= created.updatedAt)
+        #expect(fetched[0].updatedAt > created.updatedAt)
     }
 
     @Test func roomReorderPersistsNewOrder() async throws {
@@ -85,7 +89,7 @@ import Testing
             containerID: container.id, name: "Wrench",
             quantity: 1, notes: nil, categoryID: nil)
 
-        try await rooms.deleteRoom(id: room.id)
+        try await rooms.deleteRooms(ids: [room.id])
 
         let (roomCount, containerCount, itemCount) = try await database.writer.read { db in
             (try Room.fetchCount(db), try Container.fetchCount(db), try Item.fetchCount(db))
@@ -110,7 +114,7 @@ import Testing
             containerID: container.id, name: "Wrench",
             quantity: 1, notes: nil, categoryID: category.id)
 
-        try await categories.deleteCategory(id: category.id)
+        try await categories.deleteCategories(ids: [category.id])
 
         let survivor = try await items.fetchItem(id: item.id)
         #expect(survivor != nil)

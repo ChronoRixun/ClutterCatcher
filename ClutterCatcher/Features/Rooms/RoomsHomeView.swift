@@ -7,9 +7,13 @@ struct RoomsHomeView: View {
     @Environment(Router.self) private var router
 
     @State private var entries: [RoomListEntry] = []
+    @State private var entriesLoaded = false
     @State private var isAddingRoom = false
     @State private var isShowingLabelSheet = false
     @State private var isShowingCategories = false
+    /// Rooms awaiting delete confirmation — deleting a room cascades to all
+    /// of its containers and items, so a bare swipe must not be enough.
+    @State private var pendingDeletion: [RoomListEntry] = []
 
     private var repository: RoomRepository { RoomRepository(database: appDatabase) }
 
@@ -17,7 +21,9 @@ struct RoomsHomeView: View {
         @Bindable var router = router
         NavigationStack(path: $router.catalogPath) {
             Group {
-                if entries.isEmpty {
+                if !entriesLoaded {
+                    ProgressView()
+                } else if entries.isEmpty {
                     ContentUnavailableView {
                         Label("No Rooms Yet", systemImage: "square.grid.2x2")
                     } description: {
@@ -61,15 +67,52 @@ struct RoomsHomeView: View {
             .sheet(isPresented: $isShowingCategories) {
                 NavigationStack { CategoriesView() }
             }
+            .confirmationDialog(
+                deletionTitle,
+                isPresented: Binding(
+                    get: { !pendingDeletion.isEmpty },
+                    set: { if !$0 { pendingDeletion = [] } }),
+                titleVisibility: .visible
+            ) {
+                Button("Delete", role: .destructive) {
+                    let ids = pendingDeletion.map(\.room.id)
+                    pendingDeletion = []
+                    Task {
+                        do {
+                            try await repository.deleteRooms(ids: ids)
+                        } catch {
+                            Log.data.error("Room delete failed: \(String(describing: error))")
+                        }
+                    }
+                }
+            } message: {
+                Text("Everything inside — containers and items — is deleted with it. This cannot be undone.")
+            }
+        }
+        .onChange(of: router.catalogPath) {
+            // A deep link (Camera-app scan) must never land invisibly behind
+            // a modal; during normal in-app navigation these are false anyway.
+            isAddingRoom = false
+            isShowingLabelSheet = false
+            isShowingCategories = false
         }
         .task {
             do {
                 for try await value in repository.observeRoomList() {
                     entries = value
+                    entriesLoaded = true
                 }
             } catch {
-                Log.data.error("Room list observation failed: \(error)")
+                Log.data.error("Room list observation failed: \(String(describing: error))")
             }
+        }
+    }
+
+    private var deletionTitle: String {
+        if pendingDeletion.count == 1, let entry = pendingDeletion.first {
+            "Delete “\(entry.room.name)”?"
+        } else {
+            "Delete \(pendingDeletion.count) rooms?"
         }
     }
 
@@ -89,21 +132,12 @@ struct RoomsHomeView: View {
                     do {
                         try await repository.reorderRooms(orderedIDs: orderedIDs)
                     } catch {
-                        Log.data.error("Room reorder failed: \(error)")
+                        Log.data.error("Room reorder failed: \(String(describing: error))")
                     }
                 }
             }
             .onDelete { offsets in
-                let ids = offsets.map { entries[$0].room.id }
-                Task {
-                    do {
-                        for id in ids {
-                            try await repository.deleteRoom(id: id)
-                        }
-                    } catch {
-                        Log.data.error("Room delete failed: \(error)")
-                    }
-                }
+                pendingDeletion = offsets.map { entries[$0] }
             }
         }
     }

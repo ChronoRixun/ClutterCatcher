@@ -25,7 +25,7 @@ struct DataScannerRepresentable: UIViewControllerRepresentable {
             do {
                 try scanner.startScanning()
             } catch {
-                Log.app.error("Scanner failed to start: \(error)")
+                Log.app.error("Scanner failed to start: \(String(describing: error))")
             }
         } else if !isActive && scanner.isScanning {
             scanner.stopScanning()

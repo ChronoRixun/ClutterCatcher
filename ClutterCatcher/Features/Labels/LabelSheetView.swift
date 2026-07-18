@@ -6,16 +6,19 @@ import UIKit
 /// generate the paginated PDF, then print or share it. Generating assigns
 /// permanent label slots to containers that don't have one yet.
 struct LabelSheetView: View {
-    var preselectedContainerIDs: Set<String> = []
-
     @Environment(\.appDatabase) private var appDatabase
     @Environment(\.dismiss) private var dismiss
 
     @State private var candidates: [ContainerCandidate] = []
-    @State private var selectedIDs: Set<String> = []
+    @State private var selectedIDs: Set<String>
     @State private var specID = LabelSheetSpec.avery5163.id
     @State private var generated: GeneratedLabelPDF?
-    @State private var hasAppliedPreselection = false
+
+    /// Stale preselected ids (a deleted container) are harmless: generation
+    /// only ever uses the selection's intersection with live candidates.
+    init(preselectedContainerIDs: Set<String> = []) {
+        _selectedIDs = State(initialValue: preselectedContainerIDs)
+    }
 
     private var containerRepository: ContainerRepository { ContainerRepository(database: appDatabase) }
     private var settingsRepository: SettingsRepository { SettingsRepository(database: appDatabase) }
@@ -106,14 +109,9 @@ struct LabelSheetView: View {
                 do {
                     for try await value in containerRepository.observeAllCandidates() {
                         candidates = value
-                        if !hasAppliedPreselection {
-                            hasAppliedPreselection = true
-                            selectedIDs = preselectedContainerIDs
-                                .intersection(value.map(\.id))
-                        }
                     }
                 } catch {
-                    Log.data.error("Label candidate observation failed: \(error)")
+                    Log.data.error("Label candidate observation failed: \(String(describing: error))")
                 }
             }
             .onChange(of: specID) { _, newValue in
@@ -152,13 +150,19 @@ struct LabelSheetView: View {
                         title: candidate.container.name,
                         subtitle: candidate.roomName)
                 }
-                let data = LabelPDFRenderer(spec: spec).renderPDF(labels: labels)
+                let renderer = LabelPDFRenderer(spec: spec)
                 let url = FileManager.default.temporaryDirectory
                     .appending(path: "ClutterCatcher-Labels.pdf")
-                try data.write(to: url, options: .atomic)
+                // Rendering many QR codes is real work — keep it off the
+                // main actor so the sheet stays responsive.
+                let data = try await Task.detached {
+                    let data = renderer.renderPDF(labels: labels)
+                    try data.write(to: url, options: .atomic)
+                    return data
+                }.value
                 generated = GeneratedLabelPDF(data: data, url: url)
             } catch {
-                Log.data.error("Label PDF generation failed: \(error)")
+                Log.data.error("Label PDF generation failed: \(String(describing: error))")
             }
         }
     }

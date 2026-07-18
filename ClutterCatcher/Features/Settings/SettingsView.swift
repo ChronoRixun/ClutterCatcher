@@ -60,7 +60,7 @@ struct SettingsView: View {
                         do {
                             try await repository.resetCatalogAndReseed()
                         } catch {
-                            Log.data.error("Catalog reset failed: \(error)")
+                            Log.data.error("Catalog reset failed: \(String(describing: error))")
                         }
                     }
                 }
@@ -73,7 +73,7 @@ struct SettingsView: View {
                         stats = value
                     }
                 } catch {
-                    Log.data.error("Stats observation failed: \(error)")
+                    Log.data.error("Stats observation failed: \(String(describing: error))")
                 }
             }
         }

@@ -15,6 +15,7 @@ struct ItemEditorView: View {
     @State private var categoryID: String?
     @State private var categories: [Category] = []
     @State private var isConfirmingDelete = false
+    @State private var saveError: String?
 
     private var itemRepository: ItemRepository { ItemRepository(database: appDatabase) }
     private var categoryRepository: CategoryRepository { CategoryRepository(database: appDatabase) }
@@ -88,19 +89,21 @@ struct ItemEditorView: View {
                     guard let id = item?.id else { return }
                     Task {
                         do {
-                            try await itemRepository.deleteItem(id: id)
+                            try await itemRepository.deleteItems(ids: [id])
                             dismiss()
                         } catch {
-                            Log.data.error("Item delete failed: \(error)")
+                            Log.data.error("Item delete failed: \(String(describing: error))")
+                            saveError = error.localizedDescription
                         }
                     }
                 }
             }
+            .saveErrorAlert($saveError)
             .task {
                 do {
                     categories = try await categoryRepository.allCategories()
                 } catch {
-                    Log.data.error("Category fetch for picker failed: \(error)")
+                    Log.data.error("Category fetch for picker failed: \(String(describing: error))")
                 }
             }
         }
@@ -130,7 +133,8 @@ struct ItemEditorView: View {
                 }
                 dismiss()
             } catch {
-                Log.data.error("Item save failed: \(error)")
+                Log.data.error("Item save failed: \(String(describing: error))")
+                saveError = error.localizedDescription
             }
         }
     }

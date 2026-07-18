@@ -60,7 +60,7 @@ struct RoomDetailView: View {
                     }
                 }
             } catch {
-                Log.data.error("Room observation failed: \(error)")
+                Log.data.error("Room observation failed: \(String(describing: error))")
             }
         }
         .task {
@@ -69,7 +69,7 @@ struct RoomDetailView: View {
                     containers = value
                 }
             } catch {
-                Log.data.error("Container list observation failed: \(error)")
+                Log.data.error("Container list observation failed: \(String(describing: error))")
             }
         }
     }
@@ -96,11 +96,9 @@ struct RoomDetailView: View {
                         let ids = offsets.map { containers[$0].container.id }
                         Task {
                             do {
-                                for id in ids {
-                                    try await containerRepository.deleteContainer(id: id)
-                                }
+                                try await containerRepository.deleteContainers(ids: ids)
                             } catch {
-                                Log.data.error("Container delete failed: \(error)")
+                                Log.data.error("Container delete failed: \(String(describing: error))")
                             }
                         }
                     }

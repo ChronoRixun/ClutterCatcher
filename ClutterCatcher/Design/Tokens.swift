@@ -9,10 +9,8 @@ import SwiftUI
 enum Tokens {
     // MARK: Color
 
-    /// Warm accent, mirrored by Assets.xcassets/AccentColor (light `#E09140`,
-    /// dark `#F0A055`). Use `Color.accentColor` in views; this constant exists
-    /// for non-view contexts (PDF rendering).
-    static let accent = Color(red: 0xE0 / 255, green: 0x91 / 255, blue: 0x40 / 255)
+    // The warm accent lives solely in Assets.xcassets/AccentColor (light
+    // `#E09140`, dark `#F0A055`); views use `Color.accentColor`.
 
     /// Colors for category tokens (`categories.color_token`). Muted system
     /// palette for now; the design pass may replace these with custom values.

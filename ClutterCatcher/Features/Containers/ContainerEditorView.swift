@@ -13,6 +13,7 @@ struct ContainerEditorView: View {
     @State private var roomID: String
     @State private var notes: String
     @State private var rooms: [Room] = []
+    @State private var saveError: String?
 
     private var containerRepository: ContainerRepository { ContainerRepository(database: appDatabase) }
     private var roomRepository: RoomRepository { RoomRepository(database: appDatabase) }
@@ -59,11 +60,12 @@ struct ContainerEditorView: View {
                         .disabled(trimmedName.isEmpty)
                 }
             }
+            .saveErrorAlert($saveError)
             .task {
                 do {
                     rooms = try await roomRepository.allRooms()
                 } catch {
-                    Log.data.error("Room fetch for picker failed: \(error)")
+                    Log.data.error("Room fetch for picker failed: \(String(describing: error))")
                 }
             }
         }
@@ -87,7 +89,8 @@ struct ContainerEditorView: View {
                 }
                 dismiss()
             } catch {
-                Log.data.error("Container save failed: \(error)")
+                Log.data.error("Container save failed: \(String(describing: error))")
+                saveError = error.localizedDescription
             }
         }
     }

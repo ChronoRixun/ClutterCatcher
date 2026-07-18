@@ -37,12 +37,19 @@ struct SearchView: View {
                 results = SearchResults()
                 return
             }
+            // Debounce: each keystroke restarts this task, so the sleep
+            // coalesces bursts of typing into one observation.
+            do {
+                try await Task.sleep(for: .milliseconds(250))
+            } catch {
+                return
+            }
             do {
                 for try await value in repository.observeResults(matching: trimmedQuery) {
                     results = value
                 }
             } catch {
-                Log.data.error("Search observation failed: \(error)")
+                Log.data.error("Search observation failed: \(String(describing: error))")
             }
         }
     }

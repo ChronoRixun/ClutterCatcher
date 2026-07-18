@@ -22,14 +22,16 @@ struct ItemRepository: Sendable {
         notes: String?,
         categoryID: String?
     ) async throws -> Item {
-        try await database.writer.write { db in
+        let name = name.normalizedName
+        let notes = notes.normalizedNotes
+        return try await database.writer.write { db in
             let now = Date()
             let item = Item(
                 id: AppDatabase.newID(),
                 containerId: containerID,
                 name: name,
                 quantity: max(1, quantity),
-                notes: Self.normalized(notes),
+                notes: notes,
                 categoryId: categoryID,
                 photoAssetRef: nil,
                 createdAt: now,
@@ -42,23 +44,19 @@ struct ItemRepository: Sendable {
 
     func updateItem(_ item: Item) async throws {
         var item = item
+        item.name = item.name.normalizedName
         item.quantity = max(1, item.quantity)
-        item.notes = Self.normalized(item.notes)
+        item.notes = item.notes.normalizedNotes
         item.updatedAt = Date()
         try await database.writer.write { [item] db in
             try item.update(db)
         }
     }
 
-    func deleteItem(id: String) async throws {
+    /// Deletes items in one transaction.
+    func deleteItems(ids: [String]) async throws {
         _ = try await database.writer.write { db in
-            try Item.deleteOne(db, key: id)
+            try Item.deleteAll(db, keys: ids)
         }
-    }
-
-    private static func normalized(_ notes: String?) -> String? {
-        guard let trimmed = notes?.trimmingCharacters(in: .whitespacesAndNewlines),
-              !trimmed.isEmpty else { return nil }
-        return trimmed
     }
 }

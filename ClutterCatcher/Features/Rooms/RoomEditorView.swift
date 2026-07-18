@@ -10,6 +10,7 @@ struct RoomEditorView: View {
 
     @State private var name: String
     @State private var icon: String
+    @State private var saveError: String?
 
     private var repository: RoomRepository { RoomRepository(database: appDatabase) }
 
@@ -45,6 +46,7 @@ struct RoomEditorView: View {
                         .disabled(trimmedName.isEmpty)
                 }
             }
+            .saveErrorAlert($saveError)
         }
     }
 
@@ -63,7 +65,8 @@ struct RoomEditorView: View {
                 }
                 dismiss()
             } catch {
-                Log.data.error("Room save failed: \(error)")
+                Log.data.error("Room save failed: \(String(describing: error))")
+                saveError = error.localizedDescription
             }
         }
     }

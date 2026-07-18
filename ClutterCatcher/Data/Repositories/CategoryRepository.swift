@@ -43,7 +43,8 @@ struct CategoryRepository: Sendable {
 
     @discardableResult
     func createCategory(name: String, colorToken: String) async throws -> Category {
-        try await database.writer.write { db in
+        let name = name.normalizedName
+        return try await database.writer.write { db in
             let now = Date()
             let category = Category(
                 id: AppDatabase.newID(),
@@ -59,17 +60,18 @@ struct CategoryRepository: Sendable {
 
     func updateCategory(_ category: Category) async throws {
         var category = category
+        category.name = category.name.normalizedName
         category.updatedAt = Date()
         try await database.writer.write { [category] db in
             try category.update(db)
         }
     }
 
-    /// Deletes a category; items that carried it keep existing with no
-    /// category (FK sets `items.category_id` to NULL).
-    func deleteCategory(id: String) async throws {
+    /// Deletes categories in one transaction; items that carried them keep
+    /// existing with no category (FK sets `items.category_id` to NULL).
+    func deleteCategories(ids: [String]) async throws {
         _ = try await database.writer.write { db in
-            try Category.deleteOne(db, key: id)
+            try Category.deleteAll(db, keys: ids)
         }
     }
 }

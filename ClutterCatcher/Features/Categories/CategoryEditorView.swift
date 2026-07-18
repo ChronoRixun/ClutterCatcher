@@ -10,6 +10,7 @@ struct CategoryEditorView: View {
 
     @State private var name: String
     @State private var colorToken: String
+    @State private var saveError: String?
 
     private var repository: CategoryRepository { CategoryRepository(database: appDatabase) }
 
@@ -45,6 +46,7 @@ struct CategoryEditorView: View {
                         .disabled(trimmedName.isEmpty)
                 }
             }
+            .saveErrorAlert($saveError)
         }
     }
 
@@ -63,7 +65,8 @@ struct CategoryEditorView: View {
                 }
                 dismiss()
             } catch {
-                Log.data.error("Category save failed: \(error)")
+                Log.data.error("Category save failed: \(String(describing: error))")
+                saveError = error.localizedDescription
             }
         }
     }
