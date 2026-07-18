@@ -119,7 +119,10 @@ extension AppDatabase {
         try FileManager.default.createDirectory(
             at: directory, withIntermediateDirectories: true)
         let databaseURL = directory.appending(path: "cluttercatcher.sqlite")
-        return try AppDatabase(DatabaseQueue(path: databaseURL.path))
+        // DatabasePool (WAL) so sync-engine writes and UI observation reads
+        // coexist without blocking each other (M2). Tests and previews stay
+        // on in-memory DatabaseQueue — both are DatabaseWriters.
+        return try AppDatabase(DatabasePool(path: databaseURL.path))
     }
 
     /// An in-memory database, for tests and previews.

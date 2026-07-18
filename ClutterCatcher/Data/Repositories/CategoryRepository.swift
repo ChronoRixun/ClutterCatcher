@@ -44,16 +44,15 @@ struct CategoryRepository: Sendable {
     @discardableResult
     func createCategory(name: String, colorToken: String) async throws -> Category {
         let name = name.normalizedName
-        return try await database.writer.write { db in
-            let now = Date()
-            let category = Category(
+        return try await database.performLocalMutation { mutation in
+            var category = Category(
                 id: AppDatabase.newID(),
                 name: name,
                 colorToken: colorToken,
-                createdAt: now,
-                updatedAt: now,
+                createdAt: mutation.now,
+                updatedAt: mutation.now,
                 createdBy: nil)
-            try category.insert(db)
+            try mutation.save(&category)
             return category
         }
     }
@@ -61,17 +60,18 @@ struct CategoryRepository: Sendable {
     func updateCategory(_ category: Category) async throws {
         var category = category
         category.name = category.name.normalizedName
-        category.updatedAt = Date()
-        try await database.writer.write { [category] db in
-            try category.update(db)
+        try await database.performLocalMutation { [category] mutation in
+            var category = category
+            try mutation.save(&category)
         }
     }
 
     /// Deletes categories in one transaction; items that carried them keep
-    /// existing with no category (FK sets `items.category_id` to NULL).
+    /// existing with no category (cleared as tracked saves so the server
+    /// never holds a dangling reference).
     func deleteCategories(ids: [String]) async throws {
-        _ = try await database.writer.write { db in
-            try Category.deleteAll(db, keys: ids)
+        try await database.performLocalMutation { mutation in
+            try mutation.deleteCategories(ids: ids)
         }
     }
 }

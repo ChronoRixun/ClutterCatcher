@@ -24,9 +24,8 @@ struct ItemRepository: Sendable {
     ) async throws -> Item {
         let name = name.normalizedName
         let notes = notes.normalizedNotes
-        return try await database.writer.write { db in
-            let now = Date()
-            let item = Item(
+        return try await database.performLocalMutation { mutation in
+            var item = Item(
                 id: AppDatabase.newID(),
                 containerId: containerID,
                 name: name,
@@ -34,10 +33,10 @@ struct ItemRepository: Sendable {
                 notes: notes,
                 categoryId: categoryID,
                 photoAssetRef: nil,
-                createdAt: now,
-                updatedAt: now,
+                createdAt: mutation.now,
+                updatedAt: mutation.now,
                 createdBy: nil)
-            try item.insert(db)
+            try mutation.save(&item)
             return item
         }
     }
@@ -47,16 +46,16 @@ struct ItemRepository: Sendable {
         item.name = item.name.normalizedName
         item.quantity = max(1, item.quantity)
         item.notes = item.notes.normalizedNotes
-        item.updatedAt = Date()
-        try await database.writer.write { [item] db in
-            try item.update(db)
+        try await database.performLocalMutation { [item] mutation in
+            var item = item
+            try mutation.save(&item)
         }
     }
 
     /// Deletes items in one transaction.
     func deleteItems(ids: [String]) async throws {
-        _ = try await database.writer.write { db in
-            try Item.deleteAll(db, keys: ids)
+        try await database.performLocalMutation { mutation in
+            try mutation.deleteItems(ids: ids)
         }
     }
 }

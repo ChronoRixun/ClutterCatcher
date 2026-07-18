@@ -113,18 +113,17 @@ struct ContainerRepository: Sendable {
     func createContainer(roomID: String, name: String, notes: String?) async throws -> Container {
         let name = name.normalizedName
         let notes = notes.normalizedNotes
-        return try await database.writer.write { db in
-            let now = Date()
-            let container = Container(
+        return try await database.performLocalMutation { mutation in
+            var container = Container(
                 id: AppDatabase.newID(),
                 roomId: roomID,
                 name: name,
                 notes: notes,
                 labelSlot: nil,
-                createdAt: now,
-                updatedAt: now,
+                createdAt: mutation.now,
+                updatedAt: mutation.now,
                 createdBy: nil)
-            try container.insert(db)
+            try mutation.save(&container)
             return container
         }
     }
@@ -133,17 +132,17 @@ struct ContainerRepository: Sendable {
         var container = container
         container.name = container.name.normalizedName
         container.notes = container.notes.normalizedNotes
-        container.updatedAt = Date()
-        try await database.writer.write { [container] db in
-            try container.update(db)
+        try await database.performLocalMutation { [container] mutation in
+            var container = container
+            try mutation.save(&container)
         }
     }
 
     /// Deletes containers in one transaction; their items go with them
-    /// (FK cascade).
+    /// (FK cascade locally, explicit queued deletes for the server).
     func deleteContainers(ids: [String]) async throws {
-        _ = try await database.writer.write { db in
-            try Container.deleteAll(db, keys: ids)
+        try await database.performLocalMutation { mutation in
+            try mutation.deleteContainers(ids: ids)
         }
     }
 
@@ -154,19 +153,17 @@ struct ContainerRepository: Sendable {
     /// container's slot. In M2+ this runs after a sync pull so two devices
     /// don't hand out the same slot (D10 — pull-before-print).
     func assignLabelSlots(containerIDs: [String]) async throws -> [String: Int] {
-        try await database.writer.write { db in
+        try await database.performLocalMutation { mutation in
             var nextSlot = try Int.fetchOne(
-                db, sql: "SELECT COALESCE(MAX(label_slot), 0) + 1 FROM containers") ?? 1
+                mutation.db, sql: "SELECT COALESCE(MAX(label_slot), 0) + 1 FROM containers") ?? 1
             var slots: [String: Int] = [:]
-            let now = Date()
             for id in containerIDs {
-                guard var container = try Container.fetchOne(db, key: id) else { continue }
+                guard var container = try Container.fetchOne(mutation.db, key: id) else { continue }
                 if let slot = container.labelSlot {
                     slots[id] = slot
                 } else {
                     container.labelSlot = nextSlot
-                    container.updatedAt = now
-                    try container.update(db)
+                    try mutation.save(&container)
                     slots[id] = nextSlot
                     nextSlot += 1
                 }

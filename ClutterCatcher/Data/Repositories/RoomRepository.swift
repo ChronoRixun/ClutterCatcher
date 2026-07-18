@@ -52,19 +52,18 @@ struct RoomRepository: Sendable {
     @discardableResult
     func createRoom(name: String, icon: String?) async throws -> Room {
         let name = name.normalizedName
-        return try await database.writer.write { db in
+        return try await database.performLocalMutation { mutation in
             let nextSortOrder = try Int.fetchOne(
-                db, sql: "SELECT COALESCE(MAX(sort_order), -1) + 1 FROM rooms") ?? 0
-            let now = Date()
-            let room = Room(
+                mutation.db, sql: "SELECT COALESCE(MAX(sort_order), -1) + 1 FROM rooms") ?? 0
+            var room = Room(
                 id: AppDatabase.newID(),
                 name: name,
                 sortOrder: nextSortOrder,
                 icon: icon,
-                createdAt: now,
-                updatedAt: now,
+                createdAt: mutation.now,
+                updatedAt: mutation.now,
                 createdBy: nil)
-            try room.insert(db)
+            try mutation.save(&room)
             return room
         }
     }
@@ -72,33 +71,30 @@ struct RoomRepository: Sendable {
     func updateRoom(_ room: Room) async throws {
         var room = room
         room.name = room.name.normalizedName
-        room.updatedAt = Date()
-        try await database.writer.write { [room] db in
-            try room.update(db)
+        try await database.performLocalMutation { [room] mutation in
+            var room = room
+            try mutation.save(&room)
         }
     }
 
     /// Persists a drag-reorder: `orderedIDs` is the full room list in its new
-    /// order; each room's `sort_order` becomes its index.
+    /// order; each room whose `sort_order` actually changes becomes its index.
     func reorderRooms(orderedIDs: [String]) async throws {
-        try await database.writer.write { db in
-            let now = Date()
+        try await database.performLocalMutation { mutation in
             for (index, id) in orderedIDs.enumerated() {
-                try db.execute(
-                    sql: """
-                        UPDATE rooms SET sort_order = ?, updated_at = ?
-                        WHERE id = ? AND sort_order <> ?
-                        """,
-                    arguments: [index, now, id, index])
+                guard var room = try Room.fetchOne(mutation.db, key: id),
+                      room.sortOrder != index else { continue }
+                room.sortOrder = index
+                try mutation.save(&room)
             }
         }
     }
 
     /// Deletes rooms in one transaction; containers and their items go with
-    /// them (FK cascade).
+    /// them (FK cascade locally, explicit queued deletes for the server).
     func deleteRooms(ids: [String]) async throws {
-        _ = try await database.writer.write { db in
-            try Room.deleteAll(db, keys: ids)
+        try await database.performLocalMutation { mutation in
+            try mutation.deleteRooms(ids: ids)
         }
     }
 }

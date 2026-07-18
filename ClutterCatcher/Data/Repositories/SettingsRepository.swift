@@ -41,17 +41,19 @@ struct SettingsRepository: Sendable {
     }
 
     /// Deletes the entire catalog and re-applies the starter seed, atomically
-    /// — one transaction, so no observer ever sees the catalog half-gone.
-    /// Local-only tables other than the seed flag are untouched. Destructive
-    /// — the Settings screen gates this behind a confirmation.
+    /// — one transaction, one mutation, so no observer ever sees the catalog
+    /// half-gone and every removal syncs to the household as an explicit
+    /// delete. Rows the seeder re-creates (fixed UUIDs) collapse back into
+    /// queued saves, so their server records get overwritten, not orphaned.
+    /// Destructive — the Settings screen gates this behind a confirmation.
     func resetCatalogAndReseed() async throws {
-        try await database.writer.write { db in
-            try Item.deleteAll(db)
-            try Container.deleteAll(db)
-            try Room.deleteAll(db)
-            try Category.deleteAll(db)
-            _ = try Setting.deleteOne(db, key: Setting.seedAppliedKey)
-            try Seeder.seedIfNeeded(db)
+        try await database.performLocalMutation { mutation in
+            let roomIDs = try String.fetchAll(mutation.db, sql: "SELECT id FROM rooms")
+            let categoryIDs = try String.fetchAll(mutation.db, sql: "SELECT id FROM categories")
+            try mutation.deleteRooms(ids: roomIDs)
+            try mutation.deleteCategories(ids: categoryIDs)
+            _ = try Setting.deleteOne(mutation.db, key: Setting.seedAppliedKey)
+            try Seeder.seedIfNeeded(mutation)
         }
     }
 }
