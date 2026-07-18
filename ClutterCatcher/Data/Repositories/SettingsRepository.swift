@@ -40,14 +40,23 @@ struct SettingsRepository: Sendable {
         }
     }
 
+    /// Thrown when a participant device tries to reset the shared catalog —
+    /// owner-only by Owen's M3 ruling; the Settings row is disabled in
+    /// participant role, this guard is the backstop.
+    struct ResetNotAllowed: Error {}
+
     /// Deletes the entire catalog and re-applies the starter seed, atomically
     /// — one transaction, one mutation, so no observer ever sees the catalog
     /// half-gone and every removal syncs to the household as an explicit
     /// delete. Rows the seeder re-creates (fixed UUIDs) collapse back into
     /// queued saves, so their server records get overwritten, not orphaned.
-    /// Destructive — the Settings screen gates this behind a confirmation.
+    /// Destructive — the Settings screen gates this behind a confirmation,
+    /// and only the household owner may run it at all (M3-D).
     func resetCatalogAndReseed() async throws {
         try await database.performLocalMutation { mutation in
+            if case .participant = try SyncRole.load(mutation.db) {
+                throw ResetNotAllowed()
+            }
             let roomIDs = try String.fetchAll(mutation.db, sql: "SELECT id FROM rooms")
             let categoryIDs = try String.fetchAll(mutation.db, sql: "SELECT id FROM categories")
             try mutation.deleteRooms(ids: roomIDs)

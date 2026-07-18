@@ -113,6 +113,11 @@ struct ContainerDetailView: View {
                     Text(notes)
                         .foregroundStyle(.secondary)
                 }
+                if let createdByName = detail.createdByName {
+                    Text("Added by \(createdByName)")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                }
             }
 
             Section("Items") {

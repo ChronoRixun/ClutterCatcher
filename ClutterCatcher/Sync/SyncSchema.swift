@@ -49,8 +49,9 @@ extension Item: SyncedRecord {
 }
 
 /// One synced row with its concrete type folded in — the currency of the
-/// record mapper and the inbound apply path.
-enum SyncedRow: Equatable, Sendable {
+/// record mapper and the inbound apply path. Codable so the orphan buffer
+/// can persist parsed-but-unapplied rows (M3-G).
+enum SyncedRow: Equatable, Sendable, Codable {
     case room(Room)
     case category(Category)
     case container(Container)

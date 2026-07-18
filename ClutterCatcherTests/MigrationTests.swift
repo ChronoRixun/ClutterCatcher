@@ -73,6 +73,18 @@ import Testing
         }
     }
 
+    @Test func v3CreatesParticipantsAndOrphanedRecordsTables() throws {
+        let database = try AppDatabase.inMemory()
+        try database.writer.read { db in
+            let participants = Set(try db.columns(in: "participants").map(\.name))
+            #expect(participants.isSuperset(of: ["user_record_name", "display_name"]))
+            let orphans = Set(try db.columns(in: "orphaned_records").map(\.name))
+            #expect(orphans.isSuperset(of: [
+                "record_id", "record_type", "payload", "system_fields", "buffered_at",
+            ]))
+        }
+    }
+
     @Test func foreignKeysAreEnforced() throws {
         let database = try AppDatabase.inMemory()
         try database.writer.write { db in

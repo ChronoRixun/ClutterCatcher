@@ -92,6 +92,9 @@ private struct SyncEventRow: View {
         case .localEditDroppedByDelete: "trash"
         case .serverRecordDropped: "exclamationmark.triangle"
         case .zoneRecovered: "icloud.and.arrow.up"
+        case .syncIdentityReset: "person.crop.circle.badge.exclamationmark"
+        case .joinedHousehold: "person.3"
+        case .householdDisconnected: "icloud.slash"
         }
     }
 
@@ -102,6 +105,9 @@ private struct SyncEventRow: View {
         case .localEditDroppedByDelete: .red
         case .serverRecordDropped: .yellow
         case .zoneRecovered: .blue
+        case .syncIdentityReset: .blue
+        case .joinedHousehold: .green
+        case .householdDisconnected: .red
         }
     }
 }

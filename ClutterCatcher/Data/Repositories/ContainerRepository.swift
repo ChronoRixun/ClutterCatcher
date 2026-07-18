@@ -34,6 +34,9 @@ struct ContainerDetail: Equatable, Sendable {
     var container: Container
     var roomName: String
     var items: [ItemListEntry]
+    /// Resolved display name for the container's `created_by`, when it
+    /// resolves (M3-F); the screen shows nothing otherwise.
+    var createdByName: String?
 }
 
 /// A container with its room name, for the label-sheet picker and search.
@@ -90,7 +93,11 @@ struct ContainerRepository: Sendable {
                     ORDER BY items.name COLLATE NOCASE
                     """,
                 arguments: [containerID])
-            return ContainerDetail(container: container, roomName: roomName, items: items)
+            return ContainerDetail(
+                container: container,
+                roomName: roomName,
+                items: items,
+                createdByName: try Participant.displayName(db, createdBy: container.createdBy))
         }
     }
 

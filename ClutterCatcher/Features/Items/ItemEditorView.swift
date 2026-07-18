@@ -16,6 +16,7 @@ struct ItemEditorView: View {
     @State private var categories: [Category] = []
     @State private var isConfirmingDelete = false
     @State private var saveError: String?
+    @State private var createdByName: String?
 
     private var itemRepository: ItemRepository { ItemRepository(database: appDatabase) }
     private var categoryRepository: CategoryRepository { CategoryRepository(database: appDatabase) }
@@ -57,9 +58,15 @@ struct ItemEditorView: View {
                         }
                     }
                 }
-                Section("Notes") {
+                Section {
                     TextField("Notes", text: $notes, axis: .vertical)
                         .lineLimit(3...6)
+                } header: {
+                    Text("Notes")
+                } footer: {
+                    if let createdByName {
+                        Text("Added by \(createdByName)")
+                    }
                 }
                 if item != nil {
                     Section {
@@ -104,6 +111,11 @@ struct ItemEditorView: View {
                     categories = try await categoryRepository.allCategories()
                 } catch {
                     Log.data.error("Category fetch for picker failed: \(String(describing: error))")
+                }
+                if let createdBy = item?.createdBy {
+                    createdByName = try? await appDatabase.writer.read { db in
+                        try Participant.displayName(db, createdBy: createdBy)
+                    }
                 }
             }
         }

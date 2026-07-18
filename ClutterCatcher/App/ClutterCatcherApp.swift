@@ -3,10 +3,14 @@ import UIKit
 
 @main
 struct ClutterCatcherApp: App {
-    private let bootResult: Result<AppDatabase, Error>
+    // Share acceptance arrives through the scene delegate (M3-E).
+    @UIApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
+
+    private let bootResult: Result<(AppDatabase, BootstrapState), Error>
     private let syncCoordinator: SyncCoordinator?
     @State private var router = Router()
     @State private var syncStatus: SyncStatusModel
+    @State private var appModel: AppModel?
     @Environment(\.scenePhase) private var scenePhase
 
     init() {
@@ -14,16 +18,27 @@ struct ClutterCatcherApp: App {
         _syncStatus = State(initialValue: status)
         bootResult = Result {
             let database = try AppDatabase.onDisk()
-            try Seeder(database: database).seedIfNeeded()
-            return database
+            let state = try database.writer.write { db in
+                try AppBootstrap.adoptStateOnLaunch(db)
+            }
+            // Seeding is owner-path-only (D12/M3-B): a virgin database waits
+            // for onboarding's choice, and participants never seed at all.
+            if case .ready(.owner) = state {
+                try Seeder(database: database).seedIfNeeded()
+            }
+            return (database, state)
         }
         switch bootResult {
-        case .success(let database):
+        case .success(let boot):
             // Created here, started from `.task` — the app must be fully
             // functional before (and without) any CloudKit involvement.
-            syncCoordinator = SyncCoordinator(database: database, status: status)
+            let coordinator = SyncCoordinator(database: boot.0, status: status)
+            syncCoordinator = coordinator
+            _appModel = State(initialValue: AppModel(
+                database: boot.0, coordinator: coordinator, initialState: boot.1))
         case .failure(let error):
             syncCoordinator = nil
+            _appModel = State(initialValue: nil)
             Log.app.critical("Database bootstrap failed: \(String(describing: error))")
         }
     }
@@ -31,20 +46,32 @@ struct ClutterCatcherApp: App {
     var body: some Scene {
         WindowGroup {
             switch bootResult {
-            case .success(let database):
-                RootView()
-                    .environment(\.appDatabase, database)
-                    .environment(router)
-                    .environment(syncStatus)
-                    .onOpenURL { url in
-                        router.open(url: url)
-                    }
-                    .task {
-                        // CKSyncEngine listens for CloudKit pushes itself;
-                        // the app only has to be registered (plan §3.2).
-                        UIApplication.shared.registerForRemoteNotifications()
-                        await syncCoordinator?.start()
-                    }
+            case .success(let boot):
+                if let appModel {
+                    RootView()
+                        .environment(\.appDatabase, boot.0)
+                        .environment(\.syncCoordinator, syncCoordinator)
+                        .environment(router)
+                        .environment(syncStatus)
+                        .environment(appModel)
+                        .onOpenURL { url in
+                            router.open(url: url)
+                        }
+                        .task {
+                            // CKSyncEngine listens for CloudKit pushes itself;
+                            // the app only has to be registered (plan §3.2).
+                            UIApplication.shared.registerForRemoteNotifications()
+                            if let syncCoordinator {
+                                ShareAcceptanceModel.shared.configure(
+                                    database: boot.0,
+                                    coordinator: syncCoordinator
+                                ) { role in
+                                    appModel.roleAdopted(role)
+                                }
+                                await syncCoordinator.start()
+                            }
+                        }
+                }
             case .failure(let error):
                 BootFailureView(error: error)
             }
@@ -80,4 +107,8 @@ extension EnvironmentValues {
     /// real store; `try!` is safe because opening an in-memory SQLite
     /// database only fails if SQLite itself is broken.
     @Entry var appDatabase: AppDatabase = try! .inMemory()
+
+    /// The sync coordinator, for the few screens that talk to it directly
+    /// (Family's "Leave Household"). nil in previews and on boot failure.
+    @Entry var syncCoordinator: SyncCoordinator? = nil
 }

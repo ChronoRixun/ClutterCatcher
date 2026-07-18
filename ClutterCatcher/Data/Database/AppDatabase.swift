@@ -107,6 +107,28 @@ struct AppDatabase: Sendable {
             }
         }
 
+        migrator.registerMigration("v3") { db in
+            // Local-only share-participant roster (M3, D11): user record name
+            // → display name, refreshed from CKShare.participants whenever
+            // the share is fetched. Resolves `created_by` for display.
+            try db.create(table: "participants") { t in
+                t.primaryKey("user_record_name", .text)
+                t.column("display_name", .text).notNull()
+            }
+
+            // Local-only persistence of the inbound FK-orphan buffer (M3-G):
+            // records whose parent hasn't arrived yet survive a crash between
+            // a fetch batch and the drain — which matters most during a
+            // participant's large, unordered bootstrap hydration.
+            try db.create(table: "orphaned_records") { t in
+                t.primaryKey("record_id", .text)
+                t.column("record_type", .text).notNull()
+                t.column("payload", .blob).notNull()
+                t.column("system_fields", .blob).notNull()
+                t.column("buffered_at", .datetime).notNull()
+            }
+        }
+
         return migrator
     }
 

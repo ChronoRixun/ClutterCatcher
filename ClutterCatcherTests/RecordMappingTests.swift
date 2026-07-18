@@ -7,6 +7,9 @@ import Testing
 /// `Household`, all fields mapped except `created_by` (derived, never stored
 /// in the record — D11).
 @Suite struct RecordMappingTests {
+    /// The owner's zone — mapping is zone-agnostic (M3-C), so these tests
+    /// pin the owner variant and DynamicZoneTests covers the participant one.
+    private static let zone = SyncRole.owner.zoneID
     private let created = Date(timeIntervalSinceReferenceDate: 700_000_000.123)
     private let updated = Date(timeIntervalSinceReferenceDate: 700_000_100.456)
 
@@ -16,7 +19,7 @@ import Testing
         let room = Room(
             id: AppDatabase.newID(), name: "Garage", sortOrder: 3, icon: "car",
             createdAt: created, updatedAt: updated, createdBy: nil)
-        let record = RecordMapper.record(for: .room(room), systemFields: nil)
+        let record = RecordMapper.record(for: .room(room), systemFields: nil, zoneID: Self.zone)
         #expect(record.recordType == "Room")
         #expect(record.recordID.recordName == room.id)
         #expect(record.recordID.zoneID.zoneName == "Household")
@@ -28,7 +31,7 @@ import Testing
         let category = Category(
             id: AppDatabase.newID(), name: "Tools", colorToken: "orange",
             createdAt: created, updatedAt: updated, createdBy: nil)
-        let record = RecordMapper.record(for: .category(category), systemFields: nil)
+        let record = RecordMapper.record(for: .category(category), systemFields: nil, zoneID: Self.zone)
         #expect(record.recordType == "Category")
         let parsed = try RecordMapper.parse(record)
         #expect(parsed.row == .category(category))
@@ -39,7 +42,7 @@ import Testing
             id: AppDatabase.newID(), roomId: AppDatabase.newID(), name: "Tool Bin",
             notes: "top shelf", labelSlot: 12,
             createdAt: created, updatedAt: updated, createdBy: nil)
-        let record = RecordMapper.record(for: .container(container), systemFields: nil)
+        let record = RecordMapper.record(for: .container(container), systemFields: nil, zoneID: Self.zone)
         #expect(record.recordType == "Container")
         let parsed = try RecordMapper.parse(record)
         #expect(parsed.row == .container(container))
@@ -50,7 +53,7 @@ import Testing
             id: AppDatabase.newID(), roomId: AppDatabase.newID(), name: "Bin",
             notes: nil, labelSlot: nil,
             createdAt: created, updatedAt: updated, createdBy: nil)
-        let record = RecordMapper.record(for: .container(container), systemFields: nil)
+        let record = RecordMapper.record(for: .container(container), systemFields: nil, zoneID: Self.zone)
         let parsed = try RecordMapper.parse(record)
         #expect(parsed.row == .container(container))
     }
@@ -60,7 +63,7 @@ import Testing
             id: AppDatabase.newID(), containerId: AppDatabase.newID(), name: "Wrench",
             quantity: 4, notes: "metric", categoryId: AppDatabase.newID(), photoAssetRef: nil,
             createdAt: created, updatedAt: updated, createdBy: nil)
-        let record = RecordMapper.record(for: .item(item), systemFields: nil)
+        let record = RecordMapper.record(for: .item(item), systemFields: nil, zoneID: Self.zone)
         #expect(record.recordType == "Item")
         let parsed = try RecordMapper.parse(record)
         #expect(parsed.row == .item(item))
@@ -71,7 +74,7 @@ import Testing
             id: AppDatabase.newID(), name: "Garage", sortOrder: 0, icon: nil,
             createdAt: created, updatedAt: updated, createdBy: nil)
         room.createdBy = "SOMEONE"
-        let record = RecordMapper.record(for: .room(room), systemFields: nil)
+        let record = RecordMapper.record(for: .room(room), systemFields: nil, zoneID: Self.zone)
         #expect(record["created_by"] == nil)
     }
 
@@ -80,7 +83,7 @@ import Testing
             id: AppDatabase.newID(), containerId: AppDatabase.newID(), name: "Wrench",
             quantity: 1, notes: nil, categoryId: nil, photoAssetRef: nil,
             createdAt: created, updatedAt: updated, createdBy: nil)
-        let record = RecordMapper.record(for: .item(item), systemFields: nil)
+        let record = RecordMapper.record(for: .item(item), systemFields: nil, zoneID: Self.zone)
         let parsed = try RecordMapper.parse(record)
         #expect(parsed.row.recordType == .item)
         #expect(parsed.row.id == item.id)
@@ -92,7 +95,7 @@ import Testing
     @Test func parseRejectsUnknownRecordType() {
         let record = CKRecord(
             recordType: "Gadget",
-            recordID: CKRecord.ID(recordName: AppDatabase.newID(), zoneID: RecordMapper.zoneID))
+            recordID: CKRecord.ID(recordName: AppDatabase.newID(), zoneID: Self.zone))
         #expect(throws: (any Error).self) {
             try RecordMapper.parse(record)
         }
@@ -101,7 +104,7 @@ import Testing
     @Test func parseRejectsMissingName() {
         let record = CKRecord(
             recordType: "Room",
-            recordID: CKRecord.ID(recordName: AppDatabase.newID(), zoneID: RecordMapper.zoneID))
+            recordID: CKRecord.ID(recordName: AppDatabase.newID(), zoneID: Self.zone))
         #expect(throws: (any Error).self) {
             try RecordMapper.parse(record)
         }
@@ -110,7 +113,7 @@ import Testing
     @Test func parseRejectsItemWithoutContainerReference() {
         let record = CKRecord(
             recordType: "Item",
-            recordID: CKRecord.ID(recordName: AppDatabase.newID(), zoneID: RecordMapper.zoneID))
+            recordID: CKRecord.ID(recordName: AppDatabase.newID(), zoneID: Self.zone))
         record["name"] = "Wrench"
         #expect(throws: (any Error).self) {
             try RecordMapper.parse(record)
@@ -120,7 +123,7 @@ import Testing
     @Test func parseDefaultsMissingScalars() throws {
         let record = CKRecord(
             recordType: "Item",
-            recordID: CKRecord.ID(recordName: AppDatabase.newID(), zoneID: RecordMapper.zoneID))
+            recordID: CKRecord.ID(recordName: AppDatabase.newID(), zoneID: Self.zone))
         record["name"] = "Wrench"
         record["container_id"] = AppDatabase.newID()
         let parsed = try RecordMapper.parse(record)
@@ -136,7 +139,7 @@ import Testing
     // MARK: System fields
 
     @Test func systemFieldsRoundTripPreservesIdentityNotUserFields() throws {
-        let recordID = CKRecord.ID(recordName: AppDatabase.newID(), zoneID: RecordMapper.zoneID)
+        let recordID = CKRecord.ID(recordName: AppDatabase.newID(), zoneID: Self.zone)
         let original = CKRecord(recordType: "Room", recordID: recordID)
         original["name"] = "Garage"
         let data = original.encodedSystemFields()
@@ -150,9 +153,9 @@ import Testing
         let room = Room(
             id: AppDatabase.newID(), name: "Garage", sortOrder: 0, icon: nil,
             createdAt: created, updatedAt: updated, createdBy: nil)
-        let recordID = CKRecord.ID(recordName: room.id, zoneID: RecordMapper.zoneID)
+        let recordID = CKRecord.ID(recordName: room.id, zoneID: Self.zone)
         let base = CKRecord(recordType: "Room", recordID: recordID)
-        let rebuilt = RecordMapper.record(for: .room(room), systemFields: base.encodedSystemFields())
+        let rebuilt = RecordMapper.record(for: .room(room), systemFields: base.encodedSystemFields(), zoneID: Self.zone)
         #expect(rebuilt.recordID == recordID)
         #expect(rebuilt["name"] as? String == "Garage")
     }
@@ -163,9 +166,9 @@ import Testing
         let room = Room(
             id: AppDatabase.newID(), name: "Garage", sortOrder: 0, icon: nil,
             createdAt: created, updatedAt: updated, createdBy: nil)
-        let otherID = CKRecord.ID(recordName: AppDatabase.newID(), zoneID: RecordMapper.zoneID)
+        let otherID = CKRecord.ID(recordName: AppDatabase.newID(), zoneID: Self.zone)
         let other = CKRecord(recordType: "Room", recordID: otherID)
-        let rebuilt = RecordMapper.record(for: .room(room), systemFields: other.encodedSystemFields())
+        let rebuilt = RecordMapper.record(for: .room(room), systemFields: other.encodedSystemFields(), zoneID: Self.zone)
         #expect(rebuilt.recordID.recordName == room.id)
     }
 

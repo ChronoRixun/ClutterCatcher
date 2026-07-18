@@ -23,6 +23,14 @@ struct SyncEvent: Identifiable, Equatable, Sendable, Codable,
         case serverRecordDropped
         /// The Household zone vanished; it was recreated and re-uploaded.
         case zoneRecovered
+        /// The (account, environment) fingerprint changed; sync bookkeeping
+        /// was reset and the catalog re-uploads (M3-A).
+        case syncIdentityReset
+        /// This device joined a household via a share invite (M3-E).
+        case joinedHousehold
+        /// This participant lost access to the household zone; sync is off,
+        /// the catalog stays local (M3-E degradation).
+        case householdDisconnected
     }
 
     var id: Int64?

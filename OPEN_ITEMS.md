@@ -219,27 +219,100 @@ Owen** with the chosen (most reversible) interim answer marked.
   Activity lists them newest-first with a Clear button; the full sync
   status surface remains M6.
 
+### 2026-07-18 — Run 3 (M3, zone sharing)
+
+- **DL29 — Roles + first-launch onboarding.** `SyncRole` (`.owner` /
+  `.participant(zoneOwnerName:)`) persists in `sync_state`; a virgin database
+  (no synced rows, no engine state/metadata/queue, no seed flag — the
+  identity fingerprint deliberately doesn't count) gets the two-choice
+  onboarding, and data-bearing installs predating roles auto-adopt `.owner`
+  at launch. "Join a household" persists a join-pending settings flag (no
+  role until acceptance) and shows a waiting screen with an explicit
+  "Set Up This Home Instead" escape (confirmed via dialog). `Seeder` calls
+  now exist only behind the owner branches (`AppBootstrap.becomeOwner`,
+  catalog reset) — a participant device structurally cannot seed.
+- **DL30 — Sync-identity fingerprint (generalizes DL25).** `sync_state` now
+  stores (userRecordName, environment); a mismatch of either resets engine
+  states + `record_metadata` + buffered orphans — never the catalog,
+  `pending_changes` survives — then backfill re-queues. The environment
+  component is the compile-time `CLOUDKIT_ENV_PRODUCTION` condition, defined
+  in `project.yml` next to the `icloud-container-environment` entitlement
+  with lockstep comments both ways. M2's account-only key migrates (assumed
+  "development", so the first Production launch resets exactly once — one
+  `sync_events` receipt, verified in-sim on the real store), and bookkeeping
+  with no fingerprint at all is treated as stale. **Verified against the
+  live container:** with the Production schema not yet deployed, every save
+  fails with CKError 12/2006 "Cannot create new type … in production
+  schema", rows stay queued, the app runs normally — Owen's Step 0 Console
+  deploy unblocks the upload with no further action.
+- **DL31 — Zone identity is resolved from the role, once.**
+  `RecordMapper.zoneID` (hardcoded `CKCurrentUserDefaultName`) is gone;
+  `SyncRole.zoneID` is the single source, threaded through
+  `RecordMapper.record(for:systemFields:zoneID:)` and
+  `PendingChange.enginePendingChange(in:)`. No call site constructs a zone
+  ID ad hoc.
+- **DL32 — Share record rides the plain database API, not the engine** (the
+  brief's implementer's-choice note). Creation saves `CKShare(recordZoneID:)`
+  via `modifyRecords` (zone re-saved first to kill the zoneNotFound race);
+  the engine can't fight it because it only ever sends rows from
+  `pending_changes`. Inbound, fetched CKShare records are intercepted before
+  the catalog parser — they refresh the `participants` roster (and the
+  owner's archived share copy in `sync_state`, which lets Family reflect
+  sharing state offline/after relaunch); share *deletions* mean stop-sharing
+  (owner: clear roster+archive) or revocation (participant: degrade).
+- **DL33 — Acceptance decision table + ordering.** Fresh install and
+  pristine-seed devices (rooms/categories exactly matching the seed, nothing
+  else) join silently; anything else gets the "Joining replaces this
+  device's catalog with the household's" dialog. Acceptance runs
+  accept-first (`CKContainer.accept`, the async wrapper of
+  `CKAcceptSharesOperation`): if the server call fails nothing local
+  changed; the wipe + role adoption + roster seed then commit in one
+  transaction (`ParticipantBootstrap.wipeAndAdopt`), so a crash leaves the
+  device fully joined or untouched. Cold launches read the metadata from
+  `UIScene.ConnectionOptions`; a model buffer covers metadata arriving
+  before bootstrap finishes.
+- **DL34 — Participants degrade; only owners recover zones.** Share revoked
+  / removed / zone gone in participant role → engine off, catalog kept, a
+  persisted disconnected flag (so relaunches don't re-fail), one
+  `sync_events` receipt, persistent banner, and Family switches to
+  rejoin-by-invite instructions. "Leave Household" deletes the `Household`
+  zone from the participant's shared database (CloudKit's remove-self) and
+  lands in the same state. The owner's zone-recovery path is unchanged and
+  unreachable in participant role.
+- **DL35 — created_by resolution.** Inbound parses stamp
+  `creatorUserRecordID.recordName`; display resolves via the local roster:
+  `__defaultOwner__` names the *zone owner* (owner device → "You";
+  participant device → the owner's roster name), this device's own record
+  name → "You", anything else → roster lookup or nothing. Shown subtly in
+  container detail and the item editor footer. The both-sides rendering
+  check is on Owen's gate.
+- **DL36 — Orphan buffer persisted (closes the M2 review finding).** The
+  in-memory FK-orphan buffer became the local-only `orphaned_records` table
+  (v3): buffered in the same transaction as the batch apply, drained on
+  coordinator start and after each fetch, cleared on apply/drop, salvage
+  and drop receipts written inside the drain transaction. Undecodable
+  payloads prune themselves.
+
 ## Questions for Owen
 
-1. **Reset Catalog semantics once the household shares the zone (decide by
-   M3/M4).** Reset now propagates as real deletes+reseeds through sync —
-   correct for one user, but on a shared zone any family member tapping it
-   would erase the household catalog for everyone. Interim (most reversible)
-   answer shipped in M2: behavior kept, footer copy now says it erases from
-   iCloud too. Options for M3: owner-only reset, participant reset = leave +
-   re-hydrate, or keep global reset with scarier confirmation.
+*(none open)*
+
+1. ~~**Reset Catalog semantics once the household shares the zone.**~~
+   **Resolved (Owen, M3 kickoff): reset is owner-only.** Shipped in Run 3:
+   participant role sees the Settings row disabled with "Only the household
+   owner can reset the shared catalog."; a repository-level guard
+   (`SettingsRepository.ResetNotAllowed`) backstops the UI. The owner keeps
+   the "erases from iCloud for everyone" footer.
 
 ## Watch-outs for M2/M3 (from Run 1 review)
 
 - ~~**DatabasePool at M2 start**~~ — done (DL27): `onDisk()` opens a
   `DatabasePool`, WAL conversion of existing stores verified in-sim; tests
   stay on in-memory `DatabaseQueue`.
-- **Participant seeding (D12):** `Seeder.seedIfNeeded()` currently runs
-  unconditionally on first launch — correct while Owen is the only user. M3's
-  share-acceptance path must set the seed flag *before* the first launch
-  bootstraps from the shared zone, or a participant device would locally
-  seed rooms/categories and later push them into the household zone,
-  resurrecting anything Owen had renamed/deleted.
+- ~~**Participant seeding (D12)**~~ — closed structurally in Run 3 (DL29):
+  seeding is owner-path-only by construction (onboarding decides the role
+  before anything seeds; the acceptance path never touches `Seeder`), so no
+  seed-flag ordering trick is needed at all.
 - ~~**`updated_at` discipline**~~ — done (DL20): stamping lives in
   `LocalMutation.save` alone; repositories no longer touch timestamps.
 - **Deferred cleanups** (deliberately not done without a compiler on hand):

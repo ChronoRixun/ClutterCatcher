@@ -25,6 +25,17 @@ settings:
     ENABLE_USER_SCRIPT_SANDBOXING: YES
     MARKETING_VERSION: "0.1.0"
     CURRENT_PROJECT_VERSION: "1"
+  configs:
+    # CLOUDKIT_ENV_PRODUCTION mirrors the icloud-container-environment
+    # entitlement below into Swift (CloudKitEnvironment.current) — it feeds
+    # the sync-identity fingerprint that resets sync bookkeeping when the
+    # environment changes. The condition and the entitlement MUST change in
+    # lockstep (D15/M3-A); TestFlight/App Store builds are always Production,
+    # so the condition stays set in Release regardless of the entitlement.
+    Debug:
+      SWIFT_ACTIVE_COMPILATION_CONDITIONS: "$(inherited) DEBUG CLOUDKIT_ENV_PRODUCTION"
+    Release:
+      SWIFT_ACTIVE_COMPILATION_CONDITIONS: "$(inherited) CLOUDKIT_ENV_PRODUCTION"
 
 targets:
   ClutterCatcher:
@@ -72,6 +83,11 @@ targets:
           - iCloud.com.rixun.cluttercatcher
         com.apple.developer.icloud-services:
           - CloudKit
+        # Dev-signed builds hit the Production container environment from M3
+        # on (D15) — real family data accumulates only in Production.
+        # TestFlight/App Store ignore this key (always Production). MUST
+        # change in lockstep with CLOUDKIT_ENV_PRODUCTION above.
+        com.apple.developer.icloud-container-environment: Production
         aps-environment: development
 
   ClutterCatcherTests:

@@ -2,18 +2,24 @@ import CloudKit
 import Foundation
 import GRDB
 
-/// Owns the private-database CKSyncEngine (plan §3.2, M2 scope: one Apple
-/// ID, no sharing — the shared-database engine and participant logic are M3).
+/// Owns this device's CKSyncEngine (plan §3.2, M3 role-aware): the owner
+/// runs a private-database engine against a zone it owns; a participant runs
+/// a shared-database engine against the owner's zone. One engine per device,
+/// never both — the delegate logic (mapping, LWW, receipts, orphans) is
+/// shared; only the database and zone differ.
 ///
 /// Responsibilities:
-/// - engine lifecycle: state serialization round-trip through `sync_state`,
-///   `Household` zone creation, account monitoring;
+/// - engine lifecycle: role resolution, state serialization round-trip
+///   through `sync_state`, `Household` zone creation (owner only), account
+///   monitoring, sync-identity fingerprint enforcement;
 /// - outbound: drains `pending_changes` in `nextRecordZoneChangeBatch`,
 ///   persists returned system fields and clears queue rows on ack, routes
 ///   `serverRecordChanged` through the LWW merge;
 /// - inbound: applies fetched changes through `applyServerChanges` (never
-///   the local-mutation path), buffering FK orphans until their parents land;
-/// - recovery: zone deleted / purged / `zoneNotFound` → recreate + re-upload.
+///   the local-mutation path), persisting FK orphans until their parents
+///   land; CKShare records refresh the participant roster instead;
+/// - recovery: owner → zone recreate + re-upload; participant → degradation
+///   (sync off, catalog kept, banner) — never zone recovery.
 ///
 /// The app must stay fully functional with sync off: nothing here blocks the
 /// UI, and every failure degrades to "changes stay queued locally".
@@ -25,10 +31,9 @@ actor SyncCoordinator {
     private var engine: CKSyncEngine?
     private var started = false
     private var isRecoveringZone = false
-    /// Fetched records whose parent row hasn't arrived yet (CloudKit batches
-    /// don't respect our FK order); retried after each batch and drained for
-    /// good when the fetch completes.
-    private var orphanBuffer: [ParsedServerRecord] = []
+    /// The role the running engine was configured for, resolved at engine
+    /// start. All zone identity flows from `role.zoneID` (M3-C).
+    private var role: SyncRole?
     private var pendingObservationTask: Task<Void, Never>?
     private var accountMonitorTask: Task<Void, Never>?
 
@@ -45,8 +50,8 @@ actor SyncCoordinator {
 
     // MARK: Lifecycle
 
-    /// Called once from app bootstrap, after seeding. Safe with no iCloud
-    /// account: sync stays off and the app runs local-only.
+    /// Called once from app bootstrap. Safe with no iCloud account or no
+    /// role yet: sync stays off and the app runs local-only.
     func start() async {
         guard !started else { return }
         started = true
@@ -58,18 +63,33 @@ actor SyncCoordinator {
         await accountStatusChanged()
     }
 
+    /// Re-resolves the role and restarts the engine accordingly. Called after
+    /// onboarding picks "Set up this home" and after a share acceptance
+    /// adopts the participant role.
+    func roleDidChange() async {
+        engine = nil
+        pendingObservationTask?.cancel()
+        pendingObservationTask = nil
+        await accountStatusChanged()
+    }
+
     /// Foreground hook: CloudKit pushes don't reliably reach simulators, and
-    /// a fetch on activation makes the M2 two-device gate observable.
+    /// a fetch on activation keeps two-device gates observable (DL26).
     func applicationDidBecomeActive() {
         fetchSoon()
     }
 
     private func accountStatusChanged() async {
+        // The persisted role is UI-relevant even when sync can't run (no
+        // account, restricted) — publish it before any engine decision.
+        if let persisted = try? await database.writer.read({ db in try SyncRole.load(db) }) {
+            setRoleOnStatus(persisted)
+        }
         do {
             let accountStatus = try await container.accountStatus()
             switch accountStatus {
             case .available:
-                await verifyAccountIdentity()
+                await verifySyncIdentity()
                 await startEngineIfNeeded()
             case .noAccount:
                 stopEngine(reason: "no iCloud account")
@@ -88,62 +108,79 @@ actor SyncCoordinator {
         }
     }
 
-    /// The sync bookkeeping (engine state, record metadata) is only valid for
-    /// the Apple ID that produced it. If the signed-in user changed while the
-    /// app was dead, reset it — the catalog itself stays, and backfill
-    /// re-queues everything for the new account's zone.
-    private func verifyAccountIdentity() async {
+    /// Sync bookkeeping is only valid for one (Apple ID, container
+    /// environment) pair (M3-A, generalizing DL25). A mismatch of either
+    /// resets it — the catalog stays, and backfill re-queues everything.
+    private func verifySyncIdentity() async {
         guard let userRecordID = try? await container.userRecordID() else {
-            Log.sync.info("userRecordID unavailable; skipping account-identity check")
+            Log.sync.info("userRecordID unavailable; skipping sync-identity check")
             return
         }
-        let name = userRecordID.recordName
+        let current = SyncIdentityFingerprint(
+            userRecordName: userRecordID.recordName,
+            environment: CloudKitEnvironment.current)
         do {
-            let stored: String? = try await database.writer.read { db in
-                try SyncState.fetchOne(db, key: SyncState.accountUserKey)
-                    .flatMap { String(data: $0.data, encoding: .utf8) }
+            let didReset = try await database.writer.write { db in
+                try SyncIdentityBookkeeping.reconcile(db, current: current)
             }
-            if let stored, stored != name {
-                Log.sync.warning("iCloud account changed; resetting sync bookkeeping")
+            if didReset {
+                Log.sync.warning("Sync identity changed; bookkeeping was reset")
                 engine = nil
-                try await resetSyncBookkeeping()
-            }
-            try await database.writer.write { db in
-                try SyncState(key: SyncState.accountUserKey, data: Data(name.utf8))
-                    .insert(db, onConflict: .replace)
             }
         } catch {
-            Log.sync.error("Account identity bookkeeping failed: \(String(describing: error))")
-        }
-    }
-
-    private func resetSyncBookkeeping() async throws {
-        try await database.writer.write { db in
-            _ = try SyncState.deleteOne(db, key: SyncState.privateEngineKey)
-            try RecordMetadata.deleteAll(db)
-            // pending_changes survives: unsent local edits are still edits.
+            Log.sync.error("Sync-identity bookkeeping failed: \(String(describing: error))")
         }
     }
 
     private func startEngineIfNeeded() async {
+        let resolved: (role: SyncRole?, joinPending: Bool, disconnected: Bool)
+        do {
+            resolved = try await database.writer.read { db in
+                (try SyncRole.load(db),
+                 try Setting.fetchOne(db, key: Setting.joinPendingKey) != nil,
+                 try SyncState.fetchOne(db, key: SyncState.participantDisconnectedKey) != nil)
+            }
+        } catch {
+            Log.sync.error("Role resolution failed: \(String(describing: error))")
+            setStatus(.off(reason: "sync state unreadable"))
+            return
+        }
+        guard let role = resolved.role else {
+            self.role = nil
+            setRoleOnStatus(nil)
+            setStatus(.off(reason: resolved.joinPending
+                ? "waiting for a household invite" : "not set up yet"))
+            return
+        }
+        self.role = role
+        setRoleOnStatus(role)
+        if case .participant = role, resolved.disconnected {
+            engine = nil
+            setStatus(.disconnected)
+            return
+        }
         guard engine == nil else {
             await settleStatus()
             return
         }
-        let serialization = await loadEngineState()
+
+        let serialization = await loadEngineState(key: Self.engineStateKey(for: role))
         let configuration = CKSyncEngine.Configuration(
-            database: container.privateCloudDatabase,
+            database: role.isOwner
+                ? container.privateCloudDatabase
+                : container.sharedCloudDatabase,
             stateSerialization: serialization,
             delegate: self)
         let engine = CKSyncEngine(configuration)
         self.engine = engine
-        Log.sync.info("Private-DB sync engine started (\(serialization == nil ? "fresh state" : "resumed state"))")
+        Log.sync.info("\(role.isOwner ? "Private" : "Shared")-DB sync engine started (\(serialization == nil ? "fresh state" : "resumed state"))")
 
-        if serialization == nil {
-            // First run for this account/state: make sure the zone exists.
-            // Saving an existing zone is harmless.
+        if role.isOwner, serialization == nil {
+            // First run for this identity: make sure the zone exists. Saving
+            // an existing zone is harmless. Participants never create the
+            // zone — it belongs to the owner.
             engine.state.add(pendingDatabaseChanges: [
-                .saveZone(CKRecordZone(zoneName: RecordMapper.zoneName)),
+                .saveZone(CKRecordZone(zoneID: role.zoneID)),
             ])
         }
         do {
@@ -156,9 +193,14 @@ actor SyncCoordinator {
         } catch {
             Log.sync.error("Backfill failed: \(String(describing: error))")
         }
+        await drainOrphans(fetchComplete: false)
         startPendingObservation()
         await settleStatus()
         fetchSoon()
+    }
+
+    private static func engineStateKey(for role: SyncRole) -> String {
+        role.isOwner ? SyncState.privateEngineKey : SyncState.sharedEngineKey
     }
 
     private func stopEngine(reason: String) {
@@ -183,12 +225,48 @@ actor SyncCoordinator {
         }
     }
 
+    // MARK: Participant degradation (M3-E)
+
+    /// Share revoked / participant removed / zone gone: sync turns off, the
+    /// catalog stays local, and the UI shows a persistent banner. Never zone
+    /// recovery — rebuilding the household zone is the owner's business.
+    private func enterDisconnectedState(context: String) async {
+        guard let role, !role.isOwner else { return }
+        guard engine != nil else { return }
+        Log.sync.warning("Participant lost household access (\(context)); sync off, catalog kept")
+        engine = nil
+        pendingObservationTask?.cancel()
+        pendingObservationTask = nil
+        do {
+            try await database.writer.write { db in
+                try SyncState(key: SyncState.participantDisconnectedKey, data: Data([1]))
+                    .insert(db, onConflict: .replace)
+                try SyncEvent.append(
+                    db, kind: .householdDisconnected, recordType: nil, recordId: nil,
+                    summary: "This device is no longer connected to the household — your catalog is safe on this device, but changes no longer sync.")
+            }
+        } catch {
+            Log.sync.error("Recording disconnection failed: \(String(describing: error))")
+        }
+        setStatus(.disconnected)
+    }
+
+    /// Participant-initiated exit: deleting the `Household` zone from the
+    /// shared database is CloudKit's way for a participant to remove
+    /// themselves from the share; then the same degradation state applies.
+    func leaveHousehold() async throws {
+        guard let role, case .participant = role else { return }
+        _ = try await container.sharedCloudDatabase.modifyRecordZones(
+            saving: [], deleting: [role.zoneID])
+        await enterDisconnectedState(context: "left household")
+    }
+
     // MARK: Engine state persistence
 
-    private func loadEngineState() async -> CKSyncEngine.State.Serialization? {
+    private func loadEngineState(key: String) async -> CKSyncEngine.State.Serialization? {
         do {
             guard let stored = try await database.writer.read({ db in
-                try SyncState.fetchOne(db, key: SyncState.privateEngineKey)?.data
+                try SyncState.fetchOne(db, key: key)?.data
             }) else { return nil }
             return try JSONDecoder().decode(CKSyncEngine.State.Serialization.self, from: stored)
         } catch {
@@ -198,10 +276,12 @@ actor SyncCoordinator {
     }
 
     private func persistEngineState(_ serialization: CKSyncEngine.State.Serialization) async {
+        guard let role else { return }
+        let key = Self.engineStateKey(for: role)
         do {
             let data = try JSONEncoder().encode(serialization)
             try await database.writer.write { db in
-                try SyncState(key: SyncState.privateEngineKey, data: data)
+                try SyncState(key: key, data: data)
                     .insert(db, onConflict: .replace)
             }
         } catch {
@@ -231,8 +311,9 @@ actor SyncCoordinator {
     }
 
     private func reconcileEnginePending(_ pending: [PendingChange]) async {
-        guard let engine, !pending.isEmpty else { return }
-        engine.state.add(pendingRecordZoneChanges: pending.map(\.enginePendingChange))
+        guard let engine, let zoneID = role?.zoneID, !pending.isEmpty else { return }
+        engine.state.add(
+            pendingRecordZoneChanges: pending.map { $0.enginePendingChange(in: zoneID) })
     }
 
     // MARK: Status
@@ -241,6 +322,13 @@ actor SyncCoordinator {
         let status = status
         Task { @MainActor in
             status.phase = phase
+        }
+    }
+
+    private func setRoleOnStatus(_ role: SyncRole?) {
+        let status = status
+        Task { @MainActor in
+            status.role = role
         }
     }
 
@@ -288,6 +376,7 @@ extension SyncCoordinator: CKSyncEngineDelegate {
         _ context: CKSyncEngine.SendChangesContext,
         syncEngine: CKSyncEngine
     ) async -> CKSyncEngine.RecordZoneChangeBatch? {
+        guard let zoneID = role?.zoneID else { return nil }
         let scope = context.options.scope
         let changes = syncEngine.state.pendingRecordZoneChanges.filter { scope.contains($0) }
         guard !changes.isEmpty else { return nil }
@@ -316,14 +405,17 @@ extension SyncCoordinator: CKSyncEngineDelegate {
                 }
                 return nil
             }
-            return RecordMapper.record(for: snapshot.row, systemFields: snapshot.systemFields)
+            return RecordMapper.record(
+                for: snapshot.row, systemFields: snapshot.systemFields, zoneID: zoneID)
         }
     }
 }
 
 // MARK: - Event handling
+// Internal (not private) so the test suite can drive the inbound paths —
+// notably the persistent orphan drain — without a live engine.
 
-private extension SyncCoordinator {
+extension SyncCoordinator {
     func handleAccountChange(_ event: CKSyncEngine.Event.AccountChange) async {
         switch event.changeType {
         case .signIn:
@@ -333,15 +425,12 @@ private extension SyncCoordinator {
             Log.sync.info("iCloud account signed out; data stays local")
             stopEngine(reason: "no iCloud account")
         case .switchAccounts:
-            Log.sync.warning("iCloud account switched; resetting sync bookkeeping")
+            Log.sync.warning("iCloud account switched; re-verifying sync identity")
             engine = nil
             pendingObservationTask?.cancel()
             pendingObservationTask = nil
-            do {
-                try await resetSyncBookkeeping()
-            } catch {
-                Log.sync.error("Bookkeeping reset failed: \(String(describing: error))")
-            }
+            // The fingerprint check inside accountStatusChanged does the
+            // bookkeeping reset with the new account's userRecordID.
             await accountStatusChanged()
         @unknown default:
             Log.sync.info("Unhandled account change")
@@ -349,10 +438,15 @@ private extension SyncCoordinator {
     }
 
     func handleFetchedDatabaseChanges(_ event: CKSyncEngine.Event.FetchedDatabaseChanges) async {
-        for deletion in event.deletions where deletion.zoneID.zoneName == RecordMapper.zoneName {
-            Log.sync.warning(
-                "Household zone deleted on server (\(String(describing: deletion.reason)))")
-            await recoverFromMissingZone(context: "database change")
+        guard let role else { return }
+        for deletion in event.deletions where deletion.zoneID == role.zoneID {
+            if role.isOwner {
+                Log.sync.warning(
+                    "Household zone deleted on server (\(String(describing: deletion.reason)))")
+                await recoverFromMissingZone(context: "database change")
+            } else {
+                await enterDisconnectedState(context: "zone removed from shared database")
+            }
         }
     }
 
@@ -361,6 +455,10 @@ private extension SyncCoordinator {
         var unparseable: [(type: String, id: String)] = []
         for modification in event.modifications {
             let record = modification.record
+            if let share = record as? CKShare {
+                await handleFetchedShare(share)
+                continue
+            }
             do {
                 parsed.append(try RecordMapper.parse(record))
             } catch {
@@ -380,7 +478,13 @@ private extension SyncCoordinator {
             }
         }
         var deletions: [(type: SyncRecordType, id: String)] = []
+        var shareDeleted = false
         for deletion in event.deletions {
+            if deletion.recordID.recordName == CKRecordNameZoneWideShare
+                || deletion.recordType == CKRecord.SystemType.share {
+                shareDeleted = true
+                continue
+            }
             guard let type = SyncRecordType(rawValue: deletion.recordType) else {
                 Log.sync.info("Ignoring deletion of unknown record type \(deletion.recordType)")
                 continue
@@ -388,6 +492,46 @@ private extension SyncCoordinator {
             deletions.append((type, deletion.recordID.recordName))
         }
         await applyServerBatch(saves: parsed, deletions: deletions)
+        if shareDeleted {
+            await handleShareDeletion()
+        }
+    }
+
+    /// The zone-wide CKShare arrives through the same fetch pipeline as our
+    /// records; it never touches the catalog — it refreshes the participant
+    /// roster (D11) and, for the owner, the archived copy the Family screen
+    /// shows before its live refetch lands.
+    func handleFetchedShare(_ share: CKShare) async {
+        let roster = HouseholdShare.roster(from: share)
+        let archived = (role?.isOwner == true) ? HouseholdShare.archive(share) : nil
+        do {
+            try await database.writer.write { db in
+                try Participant.replaceAll(db, with: roster)
+                if let archived {
+                    try SyncState(key: SyncState.archivedShareKey, data: archived)
+                        .insert(db, onConflict: .replace)
+                }
+            }
+        } catch {
+            Log.sync.error("Roster refresh failed: \(String(describing: error))")
+        }
+    }
+
+    /// The share record was deleted: for the owner that means sharing was
+    /// stopped (possibly from another device or the Console) — the private
+    /// zone and catalog are untouched. For a participant it means access is
+    /// gone (the zone deletion usually arrives too; either signal degrades).
+    func handleShareDeletion() async {
+        guard let role else { return }
+        if role.isOwner {
+            Log.sync.info("Household share deleted; sharing is off, catalog unaffected")
+            try? await database.writer.write { db in
+                try Participant.replaceAll(db, with: [])
+                _ = try SyncState.deleteOne(db, key: SyncState.archivedShareKey)
+            }
+        } else {
+            await enterDisconnectedState(context: "share revoked")
+        }
     }
 
     func applyServerBatch(
@@ -400,33 +544,35 @@ private extension SyncCoordinator {
         }
         do {
             let outcome = try await database.applyServerChanges { apply in
-                var orphaned: [ParsedServerRecord] = []
                 var dropped: [PendingChange] = []
                 for record in sortedSaves {
                     let pendingBefore = try PendingChange.fetchOne(apply.db, key: record.row.id)
                     switch try apply.applyWithMerge(record) {
                     case .orphaned:
-                        orphaned.append(record)
+                        // Persisted, not buffered in memory: a crash between
+                        // this batch and the drain must not lose it (M3-G).
+                        try OrphanedRecord.buffer(apply.db, records: [record], at: Date())
                     case .applied:
+                        _ = try OrphanedRecord.deleteOne(apply.db, key: record.row.id)
                         if let pendingBefore {
                             dropped.append(pendingBefore)
                         }
                     case .keptLocal:
-                        break
+                        _ = try OrphanedRecord.deleteOne(apply.db, key: record.row.id)
                     }
                 }
                 for deletion in sortedDeletions {
                     dropped += try apply.applyDeletion(type: deletion.type, id: deletion.id)
+                    _ = try OrphanedRecord.deleteOne(apply.db, key: deletion.id)
                 }
-                return BatchOutcome(orphaned: orphaned, droppedPending: dropped)
+                return dropped
             }
-            orphanBuffer += outcome.orphaned
-            if !outcome.droppedPending.isEmpty {
+            if let zoneID = role?.zoneID, !outcome.isEmpty {
                 engine?.state.remove(
-                    pendingRecordZoneChanges: outcome.droppedPending.map(\.enginePendingChange))
+                    pendingRecordZoneChanges: outcome.map { $0.enginePendingChange(in: zoneID) })
             }
-            if !outcome.droppedPending.filter({ $0.changeKind == .save }).isEmpty {
-                Log.sync.info("Server changes superseded \(outcome.droppedPending.count) queued local change(s) (LWW)")
+            if !outcome.filter({ $0.changeKind == .save }).isEmpty {
+                Log.sync.info("Server changes superseded \(outcome.count) queued local change(s) (LWW)")
             }
             await drainOrphans(fetchComplete: false)
         } catch {
@@ -435,70 +581,53 @@ private extension SyncCoordinator {
         }
     }
 
-    /// Retries buffered FK orphans. Mid-fetch, whatever still fails keeps
-    /// waiting; once the fetch is complete, an item missing only its
+    /// Retries persisted FK orphans. Mid-fetch, whatever still fails stays in
+    /// the table; once the fetch is complete, an item missing only its
     /// category is salvaged without the reference, and anything else is
-    /// dropped with a log (its parent is genuinely gone).
+    /// dropped with a receipt (its parent is genuinely gone). Runs on
+    /// coordinator start too — that's what makes the persistence matter.
     func drainOrphans(fetchComplete: Bool) async {
-        guard !orphanBuffer.isEmpty else { return }
-        let buffer = Self.sortedParentsFirst(orphanBuffer)
-        orphanBuffer = []
-        var still: [ParsedServerRecord]
         do {
-            still = try await database.applyServerChanges { apply in
-                var remaining: [ParsedServerRecord] = []
-                for record in buffer {
+            try await database.applyServerChanges { apply in
+                let buffered = Self.sortedParentsFirst(try OrphanedRecord.loadAll(apply.db))
+                guard !buffered.isEmpty else { return }
+                var still: [ParsedServerRecord] = []
+                for record in buffered {
                     if try apply.applyWithMerge(record) == .orphaned {
-                        remaining.append(record)
+                        still.append(record)
+                    } else {
+                        _ = try OrphanedRecord.deleteOne(apply.db, key: record.row.id)
                     }
                 }
-                return remaining
-            }
-        } catch {
-            Log.sync.error("Orphan retry failed: \(String(describing: error))")
-            still = buffer
-        }
-        guard fetchComplete else {
-            orphanBuffer = still
-            return
-        }
+                guard fetchComplete else { return } // the rest keep waiting
 
-        var droppedRecords: [ParsedServerRecord] = []
-        var salvage: [ParsedServerRecord] = []
-        for record in still {
-            if case .item(var item) = record.row, item.categoryId != nil {
-                item.categoryId = nil
-                salvage.append(ParsedServerRecord(row: .item(item), systemFields: record.systemFields))
-            } else {
-                droppedRecords.append(record)
-            }
-        }
-        if !salvage.isEmpty {
-            let toApply = salvage
-            let unsalvageable = try? await database.applyServerChanges { apply in
-                var remaining: [ParsedServerRecord] = []
-                for record in toApply {
-                    if try apply.applyWithMerge(record) == .orphaned {
-                        remaining.append(record)
+                var droppedRecords: [ParsedServerRecord] = []
+                for record in still {
+                    if case .item(var item) = record.row, item.categoryId != nil {
+                        item.categoryId = nil
+                        let salvaged = ParsedServerRecord(
+                            row: .item(item), systemFields: record.systemFields)
+                        if try apply.applyWithMerge(salvaged) == .orphaned {
+                            droppedRecords.append(record)
+                        }
+                    } else {
+                        droppedRecords.append(record)
                     }
+                    _ = try OrphanedRecord.deleteOne(apply.db, key: record.row.id)
                 }
-                return remaining
-            }
-            droppedRecords += unsalvageable ?? toApply
-        }
-        if !droppedRecords.isEmpty {
-            Log.sync.warning("Dropped \(droppedRecords.count) fetched record(s) whose parent no longer exists")
-            let receipts = droppedRecords
-            try? await database.writer.write { db in
-                for record in receipts {
+                for record in droppedRecords {
                     try SyncEvent.append(
-                        db, kind: .serverRecordDropped,
+                        apply.db, kind: .serverRecordDropped,
                         recordType: record.row.recordType, recordId: record.row.id,
                         summary: "\(record.row.displayName) — arrived from iCloud without a surviving parent and was not applied.")
                 }
+                if !droppedRecords.isEmpty {
+                    Log.sync.warning("Dropped \(droppedRecords.count) fetched record(s) whose parent no longer exists")
+                }
             }
+        } catch {
+            Log.sync.error("Orphan drain failed: \(String(describing: error))")
         }
-        orphanBuffer = []
     }
 
     func handleSentRecordZoneChanges(_ event: CKSyncEngine.Event.SentRecordZoneChanges) async {
@@ -564,7 +693,7 @@ private extension SyncCoordinator {
             }
             await resolveConflict(serverRecord: serverRecord)
         case .zoneNotFound:
-            await recoverFromMissingZone(context: "record save")
+            await handleMissingZone(context: "record save")
         case .unknownItem:
             // Deleted server-side while our edit was in flight. Deletion wins
             // (the same rule as inbound deletes); the fetch delivers the
@@ -618,6 +747,9 @@ private extension SyncCoordinator {
             let outcome = try await database.applyServerChanges { apply in
                 let pendingBefore = try PendingChange.fetchOne(apply.db, key: parsed.row.id)
                 let result = try apply.applyWithMerge(parsed)
+                if result == .orphaned {
+                    try OrphanedRecord.buffer(apply.db, records: [parsed], at: Date())
+                }
                 return ConflictOutcome(result: result, pendingBefore: pendingBefore)
             }
             switch outcome.result {
@@ -638,12 +770,12 @@ private extension SyncCoordinator {
                 }
             case .applied:
                 Log.sync.info("Conflict on \(parsed.row.id): server edit is newer, accepted")
-                if let pending = outcome.pendingBefore {
-                    engine?.state.remove(pendingRecordZoneChanges: [pending.enginePendingChange])
+                if let pending = outcome.pendingBefore, let zoneID = role?.zoneID {
+                    engine?.state.remove(
+                        pendingRecordZoneChanges: [pending.enginePendingChange(in: zoneID)])
                 }
             case .orphaned:
-                // Parent hasn't reached us yet — buffer and pull.
-                orphanBuffer.append(parsed)
+                // Parent hasn't reached us yet — persisted above; pull.
                 fetchSoon()
             }
         } catch {
@@ -665,7 +797,7 @@ private extension SyncCoordinator {
                 _ = try RecordMetadata.deleteOne(db, key: id)
             }
         case .zoneNotFound:
-            await recoverFromMissingZone(context: "record delete")
+            await handleMissingZone(context: "record delete")
         case .networkFailure, .networkUnavailable, .serviceUnavailable,
              .requestRateLimited, .zoneBusy, .notAuthenticated:
             Log.sync.info("Transient delete failure for \(id): \(error.code.rawValue)")
@@ -683,11 +815,24 @@ private extension SyncCoordinator {
         }
     }
 
-    /// Zone deleted / data purged / zoneNotFound: the server no longer has
-    /// our records, so every archived change tag is void. Recreate the zone
-    /// and re-queue the whole catalog. Guarded so a burst of per-record
-    /// zoneNotFound failures runs one recovery, not a loop — and the engine's
-    /// own send scheduling paces any retry after a failed recovery.
+    /// The zone is gone. Who fixes it depends on the role: the owner recreates
+    /// and re-uploads; a participant degrades — the household zone is not
+    /// theirs to rebuild.
+    func handleMissingZone(context: String) async {
+        guard let role else { return }
+        if role.isOwner {
+            await recoverFromMissingZone(context: context)
+        } else {
+            await enterDisconnectedState(context: context)
+        }
+    }
+
+    /// Owner only. Zone deleted / data purged / zoneNotFound: the server no
+    /// longer has our records, so every archived change tag is void. Recreate
+    /// the zone and re-queue the whole catalog. Guarded so a burst of
+    /// per-record zoneNotFound failures runs one recovery, not a loop — and
+    /// the engine's own send scheduling paces any retry after a failed
+    /// recovery.
     func recoverFromMissingZone(context: String) async {
         guard !isRecoveringZone else { return }
         isRecoveringZone = true
@@ -696,6 +841,7 @@ private extension SyncCoordinator {
         do {
             try await database.writer.write { db in
                 try RecordMetadata.deleteAll(db)
+                try OrphanedRecord.deleteAll(db)
                 // Deletes aimed at records the vanished zone held are moot.
                 try db.execute(sql: "DELETE FROM pending_changes WHERE change_kind = 'delete'")
                 try SyncBackfill.enqueueUnsyncedRows(db)
@@ -703,14 +849,14 @@ private extension SyncCoordinator {
                     db, kind: .zoneRecovered, recordType: nil, recordId: nil,
                     summary: "iCloud data for this app was missing or reset — rebuilding it from this device's catalog.")
             }
-            if let engine {
+            if let engine, let role {
                 let staleDeletes = engine.state.pendingRecordZoneChanges.filter {
                     if case .deleteRecord = $0 { return true }
                     return false
                 }
                 engine.state.remove(pendingRecordZoneChanges: staleDeletes)
                 engine.state.add(pendingDatabaseChanges: [
-                    .saveZone(CKRecordZone(zoneName: RecordMapper.zoneName)),
+                    .saveZone(CKRecordZone(zoneID: role.zoneID)),
                 ])
             }
         } catch {
@@ -731,11 +877,6 @@ private extension SyncCoordinator {
 
 // MARK: - Support types
 
-private struct BatchOutcome: Sendable {
-    var orphaned: [ParsedServerRecord]
-    var droppedPending: [PendingChange]
-}
-
 private struct ConflictOutcome: Sendable {
     var result: ServerApply.ApplyOutcome
     var pendingBefore: PendingChange?
@@ -749,14 +890,14 @@ private struct SavedSnapshot: Sendable {
 }
 
 extension PendingChange {
-    var ckRecordID: CKRecord.ID {
-        CKRecord.ID(recordName: recordId, zoneID: RecordMapper.zoneID)
+    func ckRecordID(in zoneID: CKRecordZone.ID) -> CKRecord.ID {
+        CKRecord.ID(recordName: recordId, zoneID: zoneID)
     }
 
-    var enginePendingChange: CKSyncEngine.PendingRecordZoneChange {
+    func enginePendingChange(in zoneID: CKRecordZone.ID) -> CKSyncEngine.PendingRecordZoneChange {
         switch changeKind {
-        case .save: .saveRecord(ckRecordID)
-        case .delete: .deleteRecord(ckRecordID)
+        case .save: .saveRecord(ckRecordID(in: zoneID))
+        case .delete: .deleteRecord(ckRecordID(in: zoneID))
         }
     }
 }

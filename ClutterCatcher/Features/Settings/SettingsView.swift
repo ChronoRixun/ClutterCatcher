@@ -3,11 +3,19 @@ import SwiftUI
 struct SettingsView: View {
     @Environment(\.appDatabase) private var appDatabase
     @Environment(SyncStatusModel.self) private var syncStatus
+    @Environment(AppModel.self) private var appModel
 
     @State private var stats = CatalogStats()
     @State private var isConfirmingReset = false
 
     private var repository: SettingsRepository { SettingsRepository(database: appDatabase) }
+
+    /// Reset is owner-only (M3-D, Owen's ruling): in participant role the
+    /// row is disabled with one line of explanation.
+    private var isParticipant: Bool {
+        if case .ready(.participant) = appModel.bootstrapState { return true }
+        return false
+    }
 
     private var appVersion: String {
         let short = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String
@@ -49,8 +57,13 @@ struct SettingsView: View {
                     Button("Reset Catalog…", role: .destructive) {
                         isConfirmingReset = true
                     }
+                    .disabled(isParticipant)
                 } footer: {
-                    Text("Deletes every room, container, item, and category — from iCloud too, once sync is on — then re-applies the starter catalog. Printed labels stop resolving.")
+                    if isParticipant {
+                        Text("Only the household owner can reset the shared catalog.")
+                    } else {
+                        Text("Deletes every room, container, item, and category — from iCloud too, once sync is on — then re-applies the starter catalog. Printed labels stop resolving.")
+                    }
                 }
             }
             .navigationTitle("Settings")

@@ -17,4 +17,7 @@ extension Setting: FetchableRecord, PersistableRecord {
 extension Setting {
     static let seedAppliedKey = "seed.v1.applied"
     static let labelSheetSpecKey = "labels.sheetSpec"
+    /// Present while onboarding's "Join a household" choice waits for a share
+    /// invite; cleared when acceptance adopts the participant role (M3-B).
+    static let joinPendingKey = "onboarding.joinPending"
 }

@@ -8,16 +8,15 @@ struct ParsedServerRecord: Equatable, Sendable {
     var systemFields: Data
 }
 
-/// Pure table ↔ CKRecord mapping (plan §3.2): recordName = row UUID, zone
-/// `Household` in the private database, field keys = the SQL column names.
-/// `created_by` never enters the record — it's derived from CloudKit's own
-/// creator metadata in M3, not stored (D11).
+/// Pure table ↔ CKRecord mapping (plan §3.2): recordName = row UUID, field
+/// keys = the SQL column names. The `Household` zone's identity is dynamic
+/// (M3-C): the owner's records live in their own zone, a participant's in a
+/// zone owned by someone else — so the zone ID is threaded in from the one
+/// place that resolves it (`SyncRole.zoneID`), never constructed here.
+/// `created_by` never *leaves* in our record fields (D11) — inbound, it's
+/// derived from CloudKit's own creator metadata.
 enum RecordMapper {
     static let zoneName = "Household"
-
-    static var zoneID: CKRecordZone.ID {
-        CKRecordZone.ID(zoneName: zoneName, ownerName: CKCurrentUserDefaultName)
-    }
 
     enum MappingError: Error {
         case unknownRecordType(String)
@@ -29,8 +28,9 @@ enum RecordMapper {
     /// Builds the outbound record, on top of the archived system fields when
     /// the server has seen this record before (so the save carries the
     /// correct change tag), or fresh when it hasn't.
-    static func record(for row: SyncedRow, systemFields: Data?) -> CKRecord {
-        let record = baseRecord(type: row.recordType, id: row.id, systemFields: systemFields)
+    static func record(for row: SyncedRow, systemFields: Data?, zoneID: CKRecordZone.ID) -> CKRecord {
+        let record = baseRecord(
+            type: row.recordType, id: row.id, systemFields: systemFields, zoneID: zoneID)
         switch row {
         case .room(let room):
             record["name"] = room.name
@@ -64,7 +64,7 @@ enum RecordMapper {
     }
 
     private static func baseRecord(
-        type: SyncRecordType, id: String, systemFields: Data?
+        type: SyncRecordType, id: String, systemFields: Data?, zoneID: CKRecordZone.ID
     ) -> CKRecord {
         if let systemFields,
            let restored = CKRecord.decodeSystemFields(from: systemFields),
@@ -95,6 +95,10 @@ enum RecordMapper {
         // fetch loop (it then loses every LWW comparison instead).
         let createdAt = record["created_at"] as? Date ?? Date(timeIntervalSince1970: 0)
         let updatedAt = record["updated_at"] as? Date ?? Date(timeIntervalSince1970: 0)
+        // D11: created_by is CloudKit's own creator metadata, never one of
+        // our record fields. `__defaultOwner__` means the zone owner;
+        // Participant.displayName owns the mapping to a human name.
+        let createdBy = record.creatorUserRecordID?.recordName
 
         switch type {
         case .room:
@@ -105,7 +109,7 @@ enum RecordMapper {
                 icon: record["icon"] as? String,
                 createdAt: createdAt,
                 updatedAt: updatedAt,
-                createdBy: nil))
+                createdBy: createdBy))
         case .category:
             return .category(Category(
                 id: id,
@@ -113,7 +117,7 @@ enum RecordMapper {
                 colorToken: record["color_token"] as? String ?? "gray",
                 createdAt: createdAt,
                 updatedAt: updatedAt,
-                createdBy: nil))
+                createdBy: createdBy))
         case .container:
             let roomId = try requiredString("room_id", record)
             return .container(Container(
@@ -124,7 +128,7 @@ enum RecordMapper {
                 labelSlot: record["label_slot"] as? Int,
                 createdAt: createdAt,
                 updatedAt: updatedAt,
-                createdBy: nil))
+                createdBy: createdBy))
         case .item:
             let containerId = try requiredString("container_id", record)
             return .item(Item(
@@ -137,7 +141,7 @@ enum RecordMapper {
                 photoAssetRef: record["photo_asset_ref"] as? String,
                 createdAt: createdAt,
                 updatedAt: updatedAt,
-                createdBy: nil))
+                createdBy: createdBy))
         }
     }
 
