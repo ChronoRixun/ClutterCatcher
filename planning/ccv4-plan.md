@@ -109,7 +109,7 @@ Two more invites; 4-participant roster; per-device install ritual documented in 
 **VERIFY:** all four devices converge on the same catalog; each member's edits attributed correctly.
 
 ### M6 — Hardening + polish *(mixed)*
-Sync status UI; error surfaces; empty states (Fen cameo); JSON export/backup; item photos (CKAsset) if desired; App Intents + Core Spotlight indexing of items (**iOS 26-capable** — "where are the Christmas lights" from system search); optional TestFlight migration post-GM (data already in Production per D15, so it's seamless).
+Sync status UI; error surfaces; empty states (Fen cameo); JSON export/backup; item photos (CKAsset) if desired; App Intents + Core Spotlight indexing of items (**iOS 26-capable** — "where are the Christmas lights" from system search); iPad support (`TARGETED_DEVICE_FAMILY = 1,2` + layout pass; target device: Shelley's iPad, iPadOS 27 beta — runs an iOS 26-target app fine); optional TestFlight migration post-GM (data already in Production per D15, so it's seamless).
 **VERIFY:** export/reimport round-trip; Spotlight finds a known item; family still syncing after 2 weeks.
 
 ### M7 — iOS 27 harvest *(parking lot, after family updates in fall)*

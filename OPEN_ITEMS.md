@@ -65,30 +65,63 @@ Owen** with the chosen (most reversible) interim answer marked.
   loading states guard empty-state flashes; name trimming centralized in
   repositories (`String.normalizedName` / `Optional<String>.normalizedNotes`).
 
-## Questions for Owen
+### 2026-07-17 — Run 1.1 (first-build gate + Owen's answers)
 
-1. **Seed room list.** Interim (reversible — rooms are editable/deletable
-   in-app; fixed UUIDs mean answers can also ship as a data tweak before M2):
-   Kitchen, Living Room, Office, Primary Bedroom, Andrew's Room,
-   Michael's Room, Garage, Basement. Missing anything you'd label day one —
-   Laundry, Attic, Hall Closet, Shed? Kids' rooms named right?
-2. **Seed category list.** Interim: 11 categories (Seasonal & Holiday, Tools &
-   Hardware, Electronics & Cables, Camping & Outdoor, Sports & Recreation,
-   Toys & Games, Clothing & Textiles, Books & Media, Documents & Paperwork,
-   Crafts & Hobbies, Keepsakes & Memorabilia). Trim/extend?
-3. **Label sheet stock.** Two presets ship: Avery 5163-style 4″×2″ (default)
-   and 5160-style 2⅝″×1″. Margins approximate the Avery templates — print one
-   sacrificial sheet and eyeball alignment before a real batch (see device
-   steps). Which stock are you actually buying?
-4. **iPhone-only for now** (`TARGETED_DEVICE_FAMILY = 1`). iPad would mostly
-   work via SwiftUI but is untested and unplanned until at least M6. OK?
-5. **Slot semantics** (see DL7): slots record *print order*, they don't pin a
-   container to a fixed cell position on every future sheet. If you want
-   "reprint onto a partially-used sheet" (skipping used cells), say so and
-   the layout already supports it — it's a UI affordance away.
+- **DL13 — First-build fixups (the suite's first compile).** Swift Testing's
+  `#expect` can't wrap throwing expressions inside GRDB's `read` closures
+  ("errors thrown from here are not handled"); throwing calls are hoisted to
+  `let` bindings before the `#expect` (MigrationTests, SeedTests). The
+  `nonisolated(unsafe)` on `QRCodeGenerator.context` is unnecessary in the
+  shipped SDK (CIContext is Sendable there) and got removed. The
+  `Task.detached` PDF render passed strict concurrency untouched.
+- **DL14 — Scripts pin the simulator runtime.** A bare `name=` destination
+  resolves OS to *latest* (27.0 on this Mac), where no "iPhone 17" sim
+  exists; scripts now pass `OS=${SIM_OS:-26.5}` — matching the iOS 26
+  deployment target — and an iPhone 17 (iOS 26.5) simulator was created.
+- **DL15 — Seed rooms are Owen's 12** (Q1 resolved): renamed rooms keep
+  their original UUIDs (nothing shipped, so recordName continuity is free),
+  four new rooms get fresh fixed UUIDs; sort_order = list order.
+- **DL16 — Label sheets can start at any cell** (Q5 resolved): spec and
+  renderer take a start offset (`position(forLabelIndex:startingAt:)`,
+  `pageCount(forLabelCount:startingAt:)`), the sheet UI adds a "Start at
+  label position" stepper (1…cells/sheet, resets when the format changes),
+  and the choice is per-print — never persisted.
+- **DL17 — Reset is one transaction.** `resetCatalogAndReseed` now deletes
+  and reseeds inside a single write (`Seeder.seedIfNeeded(_:)` is callable
+  within an existing transaction; the bootstrap wrapper is unchanged). No
+  observer ever sees a half-empty catalog, and the reset no longer blocks a
+  cooperative thread on a synchronous write.
+- **DL18 — Scan lookup failures surface in the viewfinder.** A thrown DB
+  read in `ScanView.handle` now shows the overlay card's error variant
+  ("Couldn't look that up — try again") instead of only logging — the
+  scanner never dies silently.
+
+## Questions for Owen — all five resolved 2026-07-17
+
+1. **Seed room list — resolved.** Owen's 12-room list shipped (DL15):
+   Kitchen, Living Room, Office, Master Bedroom, Master Bedroom Closet,
+   Andrew's Closet, Michael's Closet, Garage, Basement, Shed (Upper Door),
+   Shed (Upper Back), Laundry.
+2. **Seed category list — resolved.** Approved as-is (11 categories,
+   unchanged).
+3. **Label sheet stock — resolved (purchase still open).** Both presets stay;
+   5163-style remains the default. Owen hasn't picked a stock — he'll buy
+   what fits. Note for that purchase: the 5160 preset geometry matches the
+   real Avery template exactly; the 5163 preset is approximate. Either way,
+   print one sacrificial calibration sheet and eyeball alignment before a
+   real batch (device-only step).
+4. **iPad — resolved.** iPhone-only for now approved, but iPad is *planned*,
+   not parking-lot: M6 scope now includes iPad support
+   (`TARGETED_DEVICE_FAMILY = 1,2` + layout pass); target device is
+   Shelley's iPad (iPadOS 27 beta — runs an iOS 26-target app fine).
+5. **Reprint onto partially-used sheets — resolved and shipped** (DL16):
+   per-print "Start at label position" control on the label sheet screen.
 
 ## Watch-outs for M2/M3 (from Run 1 review)
 
+- **DatabasePool at M2 start:** switch `AppDatabase.onDisk()` from
+  `DatabaseQueue` to `DatabasePool` (WAL) at the *start* of M2, before
+  CKSyncEngine writes coexist with UI observation reads.
 - **Participant seeding (D12):** `Seeder.seedIfNeeded()` currently runs
   unconditionally on first launch — correct while Owen is the only user. M3's
   share-acceptance path must set the seed flag *before* the first launch
