@@ -1,0 +1,105 @@
+# ClutterCatcher v4 — XcodeGen project definition (source of truth).
+# Never hand-edit the generated .xcodeproj; run `xcodegen generate` after
+# adding/removing files. See planning/ccv4-plan.md (D5).
+name: ClutterCatcher
+
+options:
+  bundleIdPrefix: com.rixun
+  deploymentTarget:
+    iOS: "26.0"
+  developmentLanguage: en
+  createIntermediateGroups: true
+
+packages:
+  GRDB:
+    url: https://github.com/groue/GRDB.swift
+    from: 7.0.0
+
+settings:
+  base:
+    SWIFT_VERSION: "6.0"
+    SWIFT_STRICT_CONCURRENCY: complete
+    DEVELOPMENT_TEAM: DNL25ZFSD2
+    CODE_SIGN_STYLE: Automatic
+    IPHONEOS_DEPLOYMENT_TARGET: "26.0"
+    ENABLE_USER_SCRIPT_SANDBOXING: YES
+    MARKETING_VERSION: "0.1.0"
+    CURRENT_PROJECT_VERSION: "1"
+
+targets:
+  ClutterCatcher:
+    type: application
+    platform: iOS
+    sources:
+      - path: ClutterCatcher
+    dependencies:
+      - package: GRDB
+        product: GRDB
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.rixun.cluttercatcher
+        # iPhone-only for M0–M6; revisit iPad in the parking lot (OPEN_ITEMS).
+        TARGETED_DEVICE_FAMILY: "1"
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
+        INFOPLIST_KEY_UIUserInterfaceStyle: Automatic
+    info:
+      path: ClutterCatcher/Info.plist
+      properties:
+        CFBundleDisplayName: ClutterCatcher
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        UILaunchScreen: {}
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationPortrait
+        ITSAppUsesNonExemptEncryption: false
+        # QR deep links: cluttercatcher://c/<uuid> (plan §3.4)
+        CFBundleURLTypes:
+          - CFBundleURLName: com.rixun.cluttercatcher
+            CFBundleURLSchemes:
+              - cluttercatcher
+        NSCameraUsageDescription: >-
+          ClutterCatcher uses the camera to scan the QR labels on your bins and
+          drawers so it can show you what's inside.
+        # CloudKit scaffold only in M0/M1 — no sync code until M2 (plan §4).
+        UIBackgroundModes:
+          - remote-notification
+        CKSharingSupported: true
+    entitlements:
+      path: ClutterCatcher/ClutterCatcher.entitlements
+      properties:
+        com.apple.developer.icloud-container-identifiers:
+          - iCloud.com.rixun.cluttercatcher
+        com.apple.developer.icloud-services:
+          - CloudKit
+        aps-environment: development
+
+  ClutterCatcherTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources:
+      - path: ClutterCatcherTests
+    dependencies:
+      - target: ClutterCatcher
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.rixun.cluttercatcher.tests
+        TEST_HOST: $(BUILT_PRODUCTS_DIR)/ClutterCatcher.app/ClutterCatcher
+        BUNDLE_LOADER: $(TEST_HOST)
+        GENERATE_INFOPLIST_FILE: YES
+
+schemes:
+  ClutterCatcher:
+    build:
+      targets:
+        ClutterCatcher: all
+    run:
+      config: Debug
+    test:
+      config: Debug
+      targets:
+        - ClutterCatcherTests
+    profile:
+      config: Release
+    archive:
+      config: Release
