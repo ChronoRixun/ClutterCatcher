@@ -31,6 +31,11 @@ actor SyncCoordinator {
     private var engine: CKSyncEngine?
     private var started = false
     private var isRecoveringZone = false
+    /// Set when the last send hit failures the engine won't retry and the
+    /// app can't fix locally (e.g. schema not deployed). Kept so the status
+    /// surface shows an honest error instead of an eternal "syncing…" while
+    /// rows wait in the queue; cleared on the next send attempt (DL37).
+    private var permanentSendFailure: String?
     /// The role the running engine was configured for, resolved at engine
     /// start. All zone identity flows from `role.zoneID` (M3-C).
     private var role: SyncRole?
@@ -74,8 +79,21 @@ actor SyncCoordinator {
     }
 
     /// Foreground hook: CloudKit pushes don't reliably reach simulators, and
-    /// a fetch on activation keeps two-device gates observable (DL26).
-    func applicationDidBecomeActive() {
+    /// a fetch on activation keeps two-device gates observable (DL26). Also
+    /// re-adds the durable queue to the engine's in-memory plan: after a
+    /// permanent save failure the engine forgets those sends, and
+    /// foregrounding — not a force-quit — should be enough to retry once
+    /// the server-side problem is fixed (DL37).
+    func applicationDidBecomeActive() async {
+        if let engine, let zoneID = role?.zoneID {
+            let pending = (try? await database.writer.read { db in
+                try PendingChange.fetchAll(db)
+            }) ?? []
+            if !pending.isEmpty {
+                engine.state.add(
+                    pendingRecordZoneChanges: pending.map { $0.enginePendingChange(in: zoneID) })
+            }
+        }
         fetchSoon()
     }
 
@@ -337,7 +355,38 @@ actor SyncCoordinator {
         let pendingCount = (try? await database.writer.read { db in
             try PendingChange.fetchCount(db)
         }) ?? 0
-        setStatus(pendingCount == 0 ? .upToDate : .syncing)
+        if pendingCount == 0 {
+            permanentSendFailure = nil
+            setStatus(.upToDate)
+        } else if let permanentSendFailure {
+            setStatus(.error(message: permanentSendFailure))
+        } else {
+            setStatus(.syncing)
+        }
+    }
+
+    /// A user-visible explanation for save/delete failures the engine won't
+    /// retry on its own and the app can't fix locally — nil for codes that
+    /// are transient (the engine retries) or have dedicated handling. The
+    /// queue row always survives either way; this only keeps the status
+    /// surface honest (DL37: "syncing…" must never mask a dead end).
+    static func permanentFailureMessage(for code: CKError.Code) -> String? {
+        switch code {
+        case .invalidArguments:
+            // The classic (D15 Step 0): record types not deployed to this
+            // environment. Nothing to do app-side until the Console deploy.
+            return "iCloud can't accept changes yet — schema not deployed"
+        case .permissionFailure:
+            return "iCloud denied the change (no write permission)"
+        case .quotaExceeded:
+            return "iCloud storage is full"
+        case .serverRecordChanged, .zoneNotFound, .unknownItem,
+             .networkFailure, .networkUnavailable, .serviceUnavailable,
+             .requestRateLimited, .zoneBusy, .notAuthenticated:
+            return nil
+        default:
+            return "some changes can't reach iCloud right now"
+        }
     }
 }
 
@@ -358,7 +407,11 @@ extension SyncCoordinator: CKSyncEngineDelegate {
             await handleSentRecordZoneChanges(sent)
         case .sentDatabaseChanges(let sent):
             handleSentDatabaseChanges(sent)
-        case .willFetchChanges, .willSendChanges:
+        case .willFetchChanges:
+            setStatus(.syncing)
+        case .willSendChanges:
+            // A fresh attempt: stale permanent-failure verdicts don't stick.
+            permanentSendFailure = nil
             setStatus(.syncing)
         case .didFetchChanges:
             await drainOrphans(fetchComplete: true)
@@ -716,7 +769,12 @@ extension SyncCoordinator {
             // Transient — the engine retries on its own; the queue row stays.
             Log.sync.info("Transient save failure for \(id): \(error.code.rawValue)")
         default:
-            Log.sync.error("Unhandled save failure for \(id): \(String(describing: error))")
+            // Permanent until something changes server-side. The queue row
+            // stays (the edit is not lost); the status surface says so.
+            Log.sync.error("Permanent save failure for \(id): \(String(describing: error))")
+            if let message = Self.permanentFailureMessage(for: error.code) {
+                permanentSendFailure = message
+            }
         }
     }
 
@@ -802,7 +860,10 @@ extension SyncCoordinator {
              .requestRateLimited, .zoneBusy, .notAuthenticated:
             Log.sync.info("Transient delete failure for \(id): \(error.code.rawValue)")
         default:
-            Log.sync.error("Unhandled delete failure for \(id): \(String(describing: error))")
+            Log.sync.error("Permanent delete failure for \(id): \(String(describing: error))")
+            if let message = Self.permanentFailureMessage(for: error.code) {
+                permanentSendFailure = message
+            }
         }
     }
 

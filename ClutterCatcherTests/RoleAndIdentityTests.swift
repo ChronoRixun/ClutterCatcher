@@ -325,3 +325,30 @@ import Testing
         #expect(didReset)
     }
 }
+
+/// DL37: failures the engine won't retry must surface as an error status,
+/// never hide behind an eternal "syncing…". The queue rows survive either
+/// way — this is purely about the status being honest.
+@Suite struct SaveFailureClassificationTests {
+    @Test func schemaMissingIsPermanentAndNamesTheDeploy() {
+        let message = SyncCoordinator.permanentFailureMessage(for: .invalidArguments)
+        #expect(message?.contains("schema not deployed") == true,
+                "the undeployed-Production case must be recognizable at a glance")
+    }
+
+    @Test func transientAndSpeciallyHandledCodesAreNotPermanent() {
+        for code: CKError.Code in [
+            .networkFailure, .networkUnavailable, .serviceUnavailable,
+            .requestRateLimited, .zoneBusy, .notAuthenticated,
+            .serverRecordChanged, .zoneNotFound, .unknownItem,
+        ] {
+            #expect(SyncCoordinator.permanentFailureMessage(for: code) == nil,
+                    "\(code) is retried or has dedicated handling")
+        }
+    }
+
+    @Test func unknownCodesFailSafeToAVisibleError() {
+        #expect(SyncCoordinator.permanentFailureMessage(for: .internalError) != nil,
+                "anything unclassified must still be visible, not a silent spinner")
+    }
+}

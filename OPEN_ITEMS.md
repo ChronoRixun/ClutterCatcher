@@ -293,6 +293,23 @@ Owen** with the chosen (most reversible) interim answer marked.
   and drop receipts written inside the drain transaction. Undecodable
   payloads prune themselves.
 
+- **DL37 — Permanent send failures must be visible and self-heal on
+  foreground (post-gate incident).** Owen's first gate attempt stalled on
+  "iCloud — syncing…" forever: the Production schema deploy hadn't actually
+  landed (server kept answering CKError 12/2006 "Cannot create new type …
+  in production schema"), every save stayed queued — correct — but (a) the
+  status label only tracked "queue non-empty," so a dead end looked like
+  progress, and (b) after a permanent failure CKSyncEngine drops those
+  sends from its in-memory plan, so even a fixed server needed a force-quit
+  before the app retried. Neither a catalog reset nor an app reinstall can
+  help (both just rebuild the same queue) — worth remembering before
+  reaching for either. Fixes: `permanentFailureMessage(for:)` classifies
+  unretryable codes and `settleStatus` shows `.error` while such rows wait
+  (cleared on the next send attempt); scene-activation re-adds
+  `pending_changes` to the engine state, so "fix the Console → reopen the
+  app" recovers with no relaunch. Queue rows are never dropped by any of
+  this.
+
 ## Questions for Owen
 
 *(none open)*
