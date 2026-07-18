@@ -5,10 +5,7 @@ import UIKit
 /// level Q (plan §3.4) — sturdy enough for small print with a finger-smudge
 /// margin.
 enum QRCodeGenerator {
-    // CIContext is documented thread-safe ("CIContext objects are immutable,
-    // so they can be shared safely between threads"), it just predates
-    // Sendable annotations — hence the unsafe opt-out.
-    private nonisolated(unsafe) static let context = CIContext()
+    private static let context = CIContext()
 
     /// The QR code as a CGImage, `moduleScale` pixels per module. Nil only if
     /// CoreImage fails outright (never in practice for our short payloads).

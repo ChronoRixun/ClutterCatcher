@@ -12,6 +12,7 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 
 SIM_NAME="${SIM_NAME:-iPhone 17}"
+SIM_OS="${SIM_OS:-26.5}"
 BUNDLE_ID="com.rixun.cluttercatcher"
 mkdir -p artifacts
 
@@ -19,7 +20,7 @@ xcodegen generate
 xcodebuild \
   -project ClutterCatcher.xcodeproj \
   -scheme ClutterCatcher \
-  -destination "platform=iOS Simulator,name=${SIM_NAME}" \
+  -destination "platform=iOS Simulator,name=${SIM_NAME},OS=${SIM_OS}" \
   -derivedDataPath build/DerivedData \
   build
 

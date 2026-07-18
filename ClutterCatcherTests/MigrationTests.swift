@@ -11,7 +11,8 @@ import Testing
                 "rooms", "categories", "containers", "items",
                 "settings", "sync_state", "record_metadata", "pending_changes",
             ] {
-                #expect(try db.tableExists(table), "missing table \(table)")
+                let exists = try db.tableExists(table)
+                #expect(exists, "missing table \(table)")
             }
         }
     }
@@ -48,11 +49,14 @@ import Testing
     @Test func localTablesHaveExpectedColumns() throws {
         let database = try AppDatabase.inMemory()
         try database.writer.read { db in
-            #expect(try db.columns(in: "settings").map(\.name).contains("value"))
-            #expect(try db.columns(in: "sync_state").map(\.name).contains("data"))
-            #expect(Set(try db.columns(in: "record_metadata").map(\.name))
-                .isSuperset(of: ["record_id", "record_type", "system_fields"]))
-            #expect(Set(try db.columns(in: "pending_changes").map(\.name))
+            let settings = try db.columns(in: "settings").map(\.name)
+            #expect(settings.contains("value"))
+            let syncState = try db.columns(in: "sync_state").map(\.name)
+            #expect(syncState.contains("data"))
+            let recordMetadata = Set(try db.columns(in: "record_metadata").map(\.name))
+            #expect(recordMetadata.isSuperset(of: ["record_id", "record_type", "system_fields"]))
+            let pendingChanges = Set(try db.columns(in: "pending_changes").map(\.name))
+            #expect(pendingChanges
                 .isSuperset(of: ["record_id", "record_type", "change_kind", "queued_at"]))
         }
     }
