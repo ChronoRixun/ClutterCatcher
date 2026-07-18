@@ -61,6 +61,18 @@ import Testing
         }
     }
 
+    @Test func v2CreatesSyncEventsTable() throws {
+        let database = try AppDatabase.inMemory()
+        try database.writer.read { db in
+            let exists = try db.tableExists("sync_events")
+            #expect(exists)
+            let columns = Set(try db.columns(in: "sync_events").map(\.name))
+            #expect(columns.isSuperset(of: [
+                "id", "occurred_at", "kind", "record_type", "record_id", "summary",
+            ]))
+        }
+    }
+
     @Test func foreignKeysAreEnforced() throws {
         let database = try AppDatabase.inMemory()
         try database.writer.write { db in

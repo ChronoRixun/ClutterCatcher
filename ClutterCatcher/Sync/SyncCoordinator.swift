@@ -358,12 +358,25 @@ private extension SyncCoordinator {
 
     func handleFetchedRecordZoneChanges(_ event: CKSyncEngine.Event.FetchedRecordZoneChanges) async {
         var parsed: [ParsedServerRecord] = []
+        var unparseable: [(type: String, id: String)] = []
         for modification in event.modifications {
             let record = modification.record
             do {
                 parsed.append(try RecordMapper.parse(record))
             } catch {
                 Log.sync.error("Dropping unparseable server record \(record.recordID.recordName): \(String(describing: error))")
+                unparseable.append((record.recordType, record.recordID.recordName))
+            }
+        }
+        if !unparseable.isEmpty {
+            let receipts = unparseable
+            try? await database.writer.write { db in
+                for entry in receipts {
+                    try SyncEvent.append(
+                        db, kind: .serverRecordDropped,
+                        recordType: SyncRecordType(rawValue: entry.type), recordId: entry.id,
+                        summary: "A record from iCloud (\(entry.type)) couldn't be read and was skipped.")
+                }
             }
         }
         var deletions: [(type: SyncRecordType, id: String)] = []
@@ -450,29 +463,40 @@ private extension SyncCoordinator {
             return
         }
 
-        var droppedCount = 0
-        let salvage: [ParsedServerRecord] = still.compactMap { record in
+        var droppedRecords: [ParsedServerRecord] = []
+        var salvage: [ParsedServerRecord] = []
+        for record in still {
             if case .item(var item) = record.row, item.categoryId != nil {
                 item.categoryId = nil
-                return ParsedServerRecord(row: .item(item), systemFields: record.systemFields)
+                salvage.append(ParsedServerRecord(row: .item(item), systemFields: record.systemFields))
+            } else {
+                droppedRecords.append(record)
             }
-            droppedCount += 1
-            return nil
         }
         if !salvage.isEmpty {
+            let toApply = salvage
             let unsalvageable = try? await database.applyServerChanges { apply in
-                var remaining = 0
-                for record in salvage {
+                var remaining: [ParsedServerRecord] = []
+                for record in toApply {
                     if try apply.applyWithMerge(record) == .orphaned {
-                        remaining += 1
+                        remaining.append(record)
                     }
                 }
                 return remaining
             }
-            droppedCount += unsalvageable ?? salvage.count
+            droppedRecords += unsalvageable ?? toApply
         }
-        if droppedCount > 0 {
-            Log.sync.warning("Dropped \(droppedCount) fetched record(s) whose parent no longer exists")
+        if !droppedRecords.isEmpty {
+            Log.sync.warning("Dropped \(droppedRecords.count) fetched record(s) whose parent no longer exists")
+            let receipts = droppedRecords
+            try? await database.writer.write { db in
+                for record in receipts {
+                    try SyncEvent.append(
+                        db, kind: .serverRecordDropped,
+                        recordType: record.row.recordType, recordId: record.row.id,
+                        summary: "\(record.row.displayName) — arrived from iCloud without a surviving parent and was not applied.")
+                }
+            }
         }
         orphanBuffer = []
     }
@@ -547,9 +571,16 @@ private extension SyncCoordinator {
             // deletion for the local row.
             Log.sync.warning("Dropping local save for \(id): record was deleted on the server")
             engine?.state.remove(pendingRecordZoneChanges: [.saveRecord(record.recordID)])
+            let type = SyncRecordType(rawValue: record.recordType)
             try? await database.writer.write { db in
                 _ = try PendingChange.deleteOne(db, key: id)
                 _ = try RecordMetadata.deleteOne(db, key: id)
+                if let type {
+                    let name = try SyncedRow.fetch(db, type: type, id: id)?.displayName ?? id
+                    try SyncEvent.append(
+                        db, kind: .localEditDroppedByDelete, recordType: type, recordId: id,
+                        summary: "\(name) — deleted on another device while you had unsent changes; your edit was discarded.")
+                }
             }
         case .networkFailure, .networkUnavailable, .serviceUnavailable,
              .requestRateLimited, .zoneBusy, .notAuthenticated:
@@ -593,6 +624,18 @@ private extension SyncCoordinator {
             case .keptLocal:
                 Log.sync.info("Conflict on \(parsed.row.id): local edit is newer, re-sending")
                 engine?.state.add(pendingRecordZoneChanges: [.saveRecord(recordID)])
+                // A send-conflict is a true two-device divergence (unlike
+                // routine fetch echoes), so the winning side gets a receipt
+                // too — that's what makes LWW verifiable from either phone.
+                let row = parsed.row
+                try? await database.writer.write { db in
+                    let localName = try SyncedRow
+                        .fetch(db, type: row.recordType, id: row.id)?.displayName
+                    try SyncEvent.append(
+                        db, kind: .localEditWon,
+                        recordType: row.recordType, recordId: row.id,
+                        summary: "\(localName ?? row.displayName) — edited on two devices; your more recent change won.")
+                }
             case .applied:
                 Log.sync.info("Conflict on \(parsed.row.id): server edit is newer, accepted")
                 if let pending = outcome.pendingBefore {
@@ -656,6 +699,9 @@ private extension SyncCoordinator {
                 // Deletes aimed at records the vanished zone held are moot.
                 try db.execute(sql: "DELETE FROM pending_changes WHERE change_kind = 'delete'")
                 try SyncBackfill.enqueueUnsyncedRows(db)
+                try SyncEvent.append(
+                    db, kind: .zoneRecovered, recordType: nil, recordId: nil,
+                    summary: "iCloud data for this app was missing or reset — rebuilding it from this device's catalog.")
             }
             if let engine {
                 let staleDeletes = engine.state.pendingRecordZoneChanges.filter {

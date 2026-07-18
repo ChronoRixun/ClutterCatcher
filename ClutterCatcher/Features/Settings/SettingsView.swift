@@ -40,6 +40,9 @@ struct SettingsView: View {
                 Section("About") {
                     LabeledContent("Version", value: appVersion)
                     LabeledContent("Sync", value: syncStatus.label)
+                    NavigationLink("Sync Activity") {
+                        SyncActivityView()
+                    }
                 }
 
                 Section {

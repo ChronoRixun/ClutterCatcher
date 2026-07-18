@@ -311,6 +311,130 @@ import Testing
         #expect(metadataCount == 0, "no ack bookkeeping for a row that was not applied")
     }
 
+    // MARK: Conflict receipts (sync_events)
+
+    @Test func lwwOverwriteRecordsAnActivityEvent() async throws {
+        let database = try AppDatabase.inMemory()
+        let rooms = RoomRepository(database: database)
+        let room = try await rooms.createRoom(name: "My Offline Edit", icon: nil)
+
+        var serverRoom = room
+        serverRoom.name = "Remote Winner"
+        serverRoom.updatedAt = Date(timeIntervalSince1970: 4_000_000_000)
+        let parsed = ParsedServerRecord(row: .room(serverRoom), systemFields: Data([9]))
+        _ = try await database.applyServerChanges { apply in
+            try apply.applyWithMerge(parsed)
+        }
+
+        let events = try await database.writer.read { db in
+            try SyncEvent.fetchAll(db)
+        }
+        #expect(events.count == 1)
+        #expect(events.first?.kind == .localEditOverwritten)
+        #expect(events.first?.summary.contains("My Offline Edit") == true,
+                "the receipt names the edit the user lost, not the winner")
+        #expect(events.first?.recordId == room.id)
+    }
+
+    @Test func cleanServerApplyRecordsNoEvent() async throws {
+        let database = try AppDatabase.inMemory()
+        let room = Room(
+            id: AppDatabase.newID(), name: "Untouched", sortOrder: 0, icon: nil,
+            createdAt: Date(timeIntervalSinceReferenceDate: 0),
+            updatedAt: Date(timeIntervalSinceReferenceDate: 0), createdBy: nil)
+        try await database.applyServerChanges { apply in
+            try apply.upsert(.room(room))
+        }
+        var serverRoom = room
+        serverRoom.name = "Routine Update"
+        serverRoom.updatedAt = Date(timeIntervalSinceReferenceDate: 100)
+        let parsed = ParsedServerRecord(row: .room(serverRoom), systemFields: Data([1]))
+        _ = try await database.applyServerChanges { apply in
+            try apply.applyWithMerge(parsed)
+        }
+        let eventCount = try await database.writer.read { db in
+            try SyncEvent.fetchCount(db)
+        }
+        #expect(eventCount == 0, "accepting the server without a local edit in flight is not a conflict")
+    }
+
+    @Test func keptLocalRecordsNoEventOnRoutineFetch() async throws {
+        let database = try AppDatabase.inMemory()
+        let rooms = RoomRepository(database: database)
+        let room = try await rooms.createRoom(name: "Local Truth", icon: nil)
+
+        var serverRoom = room
+        serverRoom.name = "Stale Server"
+        serverRoom.updatedAt = Date(timeIntervalSinceReferenceDate: 1)
+        let parsed = ParsedServerRecord(row: .room(serverRoom), systemFields: Data([2]))
+        _ = try await database.applyServerChanges { apply in
+            try apply.applyWithMerge(parsed)
+        }
+        let eventCount = try await database.writer.read { db in
+            try SyncEvent.fetchCount(db)
+        }
+        #expect(eventCount == 0,
+                "fetch echoes of older server copies happen constantly; only true send-conflicts log a win")
+    }
+
+    @Test func overriddenLocalDeleteRecordsAnActivityEvent() async throws {
+        let database = try AppDatabase.inMemory()
+        let rooms = RoomRepository(database: database)
+        let room = try await rooms.createRoom(name: "Doomed Locally", icon: nil)
+        try await rooms.deleteRooms(ids: [room.id])
+
+        var serverRoom = room
+        serverRoom.name = "Resurrected Elsewhere"
+        serverRoom.updatedAt = Date(timeIntervalSince1970: 4_000_000_000)
+        let parsed = ParsedServerRecord(row: .room(serverRoom), systemFields: Data([3]))
+        let outcome = try await database.applyServerChanges { apply in
+            try apply.applyWithMerge(parsed)
+        }
+        #expect(outcome == .applied)
+
+        let events = try await database.writer.read { db in
+            try SyncEvent.fetchAll(db)
+        }
+        #expect(events.count == 1)
+        #expect(events.first?.kind == .localEditOverwritten)
+        #expect(events.first?.summary.contains("Resurrected Elsewhere") == true,
+                "no local row survives a delete, so the receipt carries the server's name")
+    }
+
+    @Test func remoteDeleteOverUnsentEditRecordsAnActivityEvent() async throws {
+        let database = try AppDatabase.inMemory()
+        let rooms = RoomRepository(database: database)
+        let room = try await rooms.createRoom(name: "Edited Here", icon: nil)
+
+        _ = try await database.applyServerChanges { apply in
+            try apply.applyDeletion(type: .room, id: room.id)
+        }
+
+        let events = try await database.writer.read { db in
+            try SyncEvent.fetchAll(db)
+        }
+        #expect(events.count == 1)
+        #expect(events.first?.kind == .localEditDroppedByDelete)
+        #expect(events.first?.summary.contains("Edited Here") == true)
+    }
+
+    @Test func remoteDeleteWithNothingPendingRecordsNoEvent() async throws {
+        let database = try AppDatabase.inMemory()
+        let room = Room(
+            id: AppDatabase.newID(), name: "Fully Synced", sortOrder: 0, icon: nil,
+            createdAt: Date(), updatedAt: Date(), createdBy: nil)
+        try await database.applyServerChanges { apply in
+            try apply.upsert(.room(room))
+        }
+        _ = try await database.applyServerChanges { apply in
+            try apply.applyDeletion(type: .room, id: room.id)
+        }
+        let eventCount = try await database.writer.read { db in
+            try SyncEvent.fetchCount(db)
+        }
+        #expect(eventCount == 0, "a routine remote delete of a synced row loses nothing")
+    }
+
     // MARK: Seeder + reset through the mutation path
 
     @Test func seederEnqueuesExactlyWhatItInserts() async throws {

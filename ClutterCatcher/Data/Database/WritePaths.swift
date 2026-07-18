@@ -183,8 +183,23 @@ struct ServerApply {
                 return .orphaned
             }
             try saveMetadata(parsed)
-            if pending != nil {
+            if let pending {
                 _ = try PendingChange.deleteOne(db, key: id)
+                // Dropping a queue row here is always a real cross-device
+                // overwrite (an echo of our own upload can never be newer
+                // than the pending edit), so it gets a receipt. Name the
+                // thing as the user last saw it — the local row — falling
+                // back to the server's name when the local edit was a delete.
+                let name = local?.displayName ?? parsed.row.displayName
+                let summary = switch pending.changeKind {
+                case .save:
+                    "\(name) — your unsent edit was replaced by a newer change from another device."
+                case .delete:
+                    "\(name) — your deletion was overridden by a newer edit from another device."
+                }
+                try SyncEvent.append(
+                    db, kind: .localEditOverwritten,
+                    recordType: parsed.row.recordType, recordId: id, summary: summary)
             }
             return .applied
         }
@@ -209,6 +224,17 @@ struct ServerApply {
             break
         }
 
+        // Names must be captured before the rows vanish: any queued save
+        // swept away by this delete is a lost user edit and gets a receipt.
+        let dropped = try PendingChange.fetchAll(db, keys: ids)
+        var lostEdits: [(pending: PendingChange, name: String)] = []
+        for pending in dropped where pending.changeKind == .save {
+            let name = try SyncedRow
+                .fetch(db, type: pending.recordType, id: pending.recordId)?
+                .displayName ?? pending.recordId
+            lostEdits.append((pending, name))
+        }
+
         switch type {
         case .room: _ = try Room.deleteOne(db, key: id)
         case .category: _ = try Category.deleteOne(db, key: id)
@@ -216,9 +242,14 @@ struct ServerApply {
         case .item: _ = try Item.deleteOne(db, key: id)
         }
 
-        let dropped = try PendingChange.fetchAll(db, keys: ids)
         try PendingChange.deleteAll(db, keys: ids)
         try RecordMetadata.deleteAll(db, keys: ids)
+        for lost in lostEdits {
+            try SyncEvent.append(
+                db, kind: .localEditDroppedByDelete,
+                recordType: lost.pending.recordType, recordId: lost.pending.recordId,
+                summary: "\(lost.name) — deleted on another device while you had unsent changes; your edit was discarded.")
+        }
         return dropped
     }
 

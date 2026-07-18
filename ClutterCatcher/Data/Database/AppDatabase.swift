@@ -92,6 +92,21 @@ struct AppDatabase: Sendable {
             }
         }
 
+        migrator.registerMigration("v2") { db in
+            // Local-only sync activity log (never synced): the user-visible
+            // receipts behind "nothing lost silently" — LWW losers, remote-
+            // delete casualties, dropped records, zone rebuilds. Capped by
+            // SyncEvent.append.
+            try db.create(table: "sync_events") { t in
+                t.autoIncrementedPrimaryKey("id")
+                t.column("occurred_at", .datetime).notNull()
+                t.column("kind", .text).notNull()
+                t.column("record_type", .text)
+                t.column("record_id", .text)
+                t.column("summary", .text).notNull()
+            }
+        }
+
         return migrator
     }
 

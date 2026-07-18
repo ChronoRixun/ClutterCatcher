@@ -83,6 +83,16 @@ enum SyncedRow: Equatable, Sendable {
         }
     }
 
+    /// The row's user-facing name, for sync-activity summaries.
+    var displayName: String {
+        switch self {
+        case .room(let row): row.name
+        case .category(let row): row.name
+        case .container(let row): row.name
+        case .item(let row): row.name
+        }
+    }
+
     static func fetch(_ db: Database, type: SyncRecordType, id: String) throws -> SyncedRow? {
         switch type {
         case .room: try Room.fetchOne(db, key: id).map(SyncedRow.room)

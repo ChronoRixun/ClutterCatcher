@@ -196,6 +196,29 @@ Owen** with the chosen (most reversible) interim answer marked.
   reconfirmed: idb-injected keyboard input is flaky on the iOS 26.5 sim
   (DL19 family) — taps are reliable, typed text sometimes never lands.
 
+### 2026-07-18 — M2 gate closed
+
+- **Owen's single-Apple-ID device pass passed** (two-way iPhone ↔ simulator
+  sync, offline reconcile, forced conflict resolved LWW, Console shows the
+  four record types in `Household`, relaunch resumes from serialized state).
+  **M3 (zone sharing) is unblocked** — it starts with the Production schema
+  deploy + environment pin (D15). Note: the iPhone 17 simulator is now
+  signed into Owen's Apple ID and live-syncs the Development household data;
+  it is no longer a throwaway sandbox.
+- **DL28 — In-app sync activity log (Owen's feature request at the gate).**
+  Conflict outcomes were only visible in Console.app on a Mac; family
+  devices (M4+) won't have a Mac attached. Migration `v2` adds local-only
+  `sync_events` (capped at 200 by `SyncEvent.append`); receipts are written
+  where the decisions happen: LWW overwrites and delete-vs-edit drops
+  inside the inbound transaction itself (`applyWithMerge` /
+  `applyDeletion`), local-won receipts only for true send-conflicts
+  (`serverRecordChanged`) so routine fetch echoes never spam the log, plus
+  dropped-orphan, unreadable-record, and zone-rebuild receipts from the
+  coordinator. Summaries are self-contained — they carry the row's name at
+  event time, because the row may be gone by reading time. Settings → Sync
+  Activity lists them newest-first with a Clear button; the full sync
+  status surface remains M6.
+
 ## Questions for Owen
 
 1. **Reset Catalog semantics once the household shares the zone (decide by
