@@ -5,12 +5,19 @@ import GRDB
 struct ContainerListEntry: Identifiable, Equatable, Sendable, FetchableRecord {
     var container: Container
     var itemCount: Int
+    /// The cover item's `photo_asset_ref`, resolved through the soft
+    /// `cover_item_id` pointer (M6, P10). nil when there's no cover, the cover
+    /// item is gone, or it has no photo — the row then shows its normal icon
+    /// (graceful fallback). The file may still be absent locally (P13); the
+    /// view decides thumbnail-vs-placeholder from that.
+    var coverPhotoAssetRef: String?
 
     var id: String { container.id }
 
     init(row: Row) throws {
         container = try Container(row: row)
         itemCount = row["item_count"]
+        coverPhotoAssetRef = row["cover_photo_asset_ref"]
     }
 }
 
@@ -59,12 +66,20 @@ struct ContainerRepository: Sendable {
 
     func observeContainers(inRoom roomID: String) -> AsyncValueObservation<[ContainerListEntry]> {
         database.observe { db in
+            // `member` fans out for the item count; `cover` is the 1:1 soft
+            // cover pointer (P10). Both alias `items`, so they must be named
+            // apart. `cover.photo_asset_ref` is constant across a container's
+            // group (it doesn't depend on `member`), so the bare column is
+            // deterministic under GROUP BY.
             try ContainerListEntry.fetchAll(
                 db,
                 sql: """
-                    SELECT containers.*, COUNT(items.id) AS item_count
+                    SELECT containers.*,
+                           COUNT(member.id) AS item_count,
+                           cover.photo_asset_ref AS cover_photo_asset_ref
                     FROM containers
-                    LEFT JOIN items ON items.container_id = containers.id
+                    LEFT JOIN items AS member ON member.container_id = containers.id
+                    LEFT JOIN items AS cover ON cover.id = containers.cover_item_id
                     WHERE containers.room_id = ?
                     GROUP BY containers.id
                     ORDER BY containers.name COLLATE NOCASE
@@ -127,6 +142,7 @@ struct ContainerRepository: Sendable {
                 name: name,
                 notes: notes,
                 labelSlot: nil,
+                coverItemId: nil,
                 createdAt: mutation.now,
                 updatedAt: mutation.now,
                 createdBy: nil)
@@ -141,6 +157,29 @@ struct ContainerRepository: Sendable {
         container.notes = container.notes.normalizedNotes
         try await database.performLocalMutation { [container] mutation in
             var container = container
+            try mutation.save(&container)
+        }
+    }
+
+    /// A one-off read of a single container, for the item editor's
+    /// "Set as Container Cover" state (M6, §6).
+    func fetchContainer(id: String) async throws -> Container? {
+        try await database.writer.read { db in
+            try Container.fetchOne(db, key: id)
+        }
+    }
+
+    /// Designates `itemID` as the container's cover (P4, Variant A), or clears
+    /// it when `itemID` is nil. A tracked save on the container (its own
+    /// `cover_item_id` field, P10) so the choice syncs to the household like
+    /// any other container edit. No-op if the container is gone.
+    func setCover(containerID: String, itemID: String?) async throws {
+        try await database.performLocalMutation { mutation in
+            guard var container = try Container.fetchOne(mutation.db, key: containerID) else {
+                return
+            }
+            guard container.coverItemId != itemID else { return } // no needless edit/echo
+            container.coverItemId = itemID
             try mutation.save(&container)
         }
     }

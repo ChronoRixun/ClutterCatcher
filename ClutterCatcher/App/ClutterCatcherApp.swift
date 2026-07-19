@@ -8,6 +8,9 @@ struct ClutterCatcherApp: App {
 
     private let bootResult: Result<(AppDatabase, BootstrapState), Error>
     private let syncCoordinator: SyncCoordinator?
+    /// The on-device photo cache (M6), injected so views import/display through
+    /// the same `Application Support/Photos` root the coordinator writes to.
+    private let photoStore: PhotoStore
     @State private var router = Router()
     @State private var syncStatus: SyncStatusModel
     @State private var appModel: AppModel?
@@ -16,6 +19,9 @@ struct ClutterCatcherApp: App {
     init() {
         let status = SyncStatusModel()
         _syncStatus = State(initialValue: status)
+        // Falls back to a caches-rooted store only if Application Support is
+        // unreachable; the coordinator resolves the same real root independently.
+        photoStore = (try? PhotoStore.onDisk()) ?? .preview()
         bootResult = Result {
             let database = try AppDatabase.onDisk()
             let state = try database.writer.write { db in
@@ -51,6 +57,7 @@ struct ClutterCatcherApp: App {
                     RootView()
                         .environment(\.appDatabase, boot.0)
                         .environment(\.syncCoordinator, syncCoordinator)
+                        .environment(\.photoStore, photoStore)
                         .environment(router)
                         .environment(syncStatus)
                         .environment(appModel)
@@ -111,4 +118,8 @@ extension EnvironmentValues {
     /// The sync coordinator, for the few screens that talk to it directly
     /// (Family's "Leave Household"). nil in previews and on boot failure.
     @Entry var syncCoordinator: SyncCoordinator? = nil
+
+    /// The on-device photo cache (M6). Default is a throwaway caches-rooted
+    /// store so previews and out-of-tree views never touch the real cache.
+    @Entry var photoStore: PhotoStore = .preview()
 }

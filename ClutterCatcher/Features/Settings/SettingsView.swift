@@ -2,6 +2,7 @@ import SwiftUI
 
 struct SettingsView: View {
     @Environment(\.appDatabase) private var appDatabase
+    @Environment(\.syncCoordinator) private var coordinator
     @Environment(SyncStatusModel.self) private var syncStatus
     @Environment(AppModel.self) private var appModel
 
@@ -51,6 +52,15 @@ struct SettingsView: View {
                     NavigationLink("Sync Activity") {
                         SyncActivityView()
                     }
+                }
+
+                Section {
+                    Button("Re-download Photos") {
+                        Task { await coordinator?.requestPhotoRefetch() }
+                    }
+                    .disabled(coordinator == nil)
+                } footer: {
+                    Text("Fetches item photos that haven't reached this device yet — after a reinstall, or if a photo is showing a placeholder.")
                 }
 
                 Section {

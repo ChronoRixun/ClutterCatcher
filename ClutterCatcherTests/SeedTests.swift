@@ -71,7 +71,7 @@ import Testing
             ).insert(db)
             try Container(
                 id: AppDatabase.newID(), roomId: customRoomID, name: "Box",
-                notes: nil, labelSlot: nil,
+                notes: nil, labelSlot: nil, coverItemId: nil,
                 createdAt: now, updatedAt: now, createdBy: nil
             ).insert(db)
         }

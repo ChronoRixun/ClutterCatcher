@@ -329,9 +329,111 @@ Owen** with the chosen (most reversible) interim answer marked.
   screen's failure alert now names permanent causes instead of suggesting
   "try again" (extends DL37's classifier to share creation).
 
+### 2026-07-19 — Run 4 (M6, item photos — cloud/uncompiled)
+
+Slice of M6 per `planning/m6-photos-plan.md` (P1–P14). Cloud Linux container,
+no Xcode/Swift — reviewed source, not a green build (see the Run 4 environment
+note below; same precedent as Run 1).
+
+- **DL39 — Photo files are keyed by `photo_asset_ref`, not the item id.**
+  The plan's P8/P9 say "keyed off the item id / `Photos/<id>.jpg`", but §5/P7
+  (authoritative on the file layout) say `Photos/<photo_asset_ref>.jpg`. Those
+  conflict; the ref is correct — it's the device-independent photo id (P6) that
+  changes on replace, so keying by it makes "replace" mint a new file and keeps
+  the missing-file check honest. Read P8/P9's "id" as "the photo id."
+- **DL40 — The inbound CKAsset copy is ONE seam, not two.** P8 (after apply)
+  and P9 (before buffering) collapse into a single materialization step at the
+  top of `handleFetchedRecordZoneChanges`, run before `applyServerBatch`: the
+  asset `fileURL` is read off the live `CKRecord` there (temp URLs are valid
+  only inside the delegate callback), and `PhotoStore.ensureLocalFile` copies by
+  ref only when the file is missing. Because it's idempotent and keyed by the
+  device-independent ref, one call covers both the applied case (file on disk
+  before the row lands) and the orphaned case (file on disk before the buffered
+  row is ever drained). Consequences: **`applyServerBatch` and
+  `ParsedServerRecord` are untouched** (the critical, well-tested path stays as
+  is), and the copy runs for every inbound photo'd item including LWW
+  `keptLocal` — a near-total no-op there (this device authored the local
+  version and already has the file), at worst one small unreferenced cache file.
+- **DL41 — Outbound attaches the CKAsset only when the local file exists, and
+  never clears an asset it simply doesn't have.** The mapper takes a resolved
+  `assetFileURL` (threaded from `PhotoStore.existingFileURL`, so `parse`/`record`
+  stay pure). If the ref is present but the bytes aren't on this device, `photo`
+  is left untouched — a metadata-only edit from such a device must not nuke the
+  household's asset. The real "photo removed" signal is `photo_asset_ref = nil`
+  (always sent); a stale CKAsset behind a nil ref is unread and harmless.
+  Trade-off accepted: the asset re-uploads on every item edit (the plan's
+  "attach when a file exists" wording); a "only re-attach when the ref changed"
+  optimization is deferred (needs extra state).
+- **DL42 — Photos are encoded JPEG ~0.8 with `.jpg` filenames, not HEIC.**
+  P12 lists HEIC preferred / JPEG fallback, but §5/P7 name the files `.jpg` and
+  that layout is load-bearing (the id→path contract). The on-disk file is a
+  regenerable cache and doesn't touch the sync contract (P6 ref is
+  device-independent), so JPEG-in-`.jpg` is the low-risk, self-consistent
+  interim. HEIC is a size optimization → Question for Owen.
+- **DL43 — Editor stages photo on Save; cover applies immediately.** The chosen
+  `photo_asset_ref` is staged in the editor and committed with Save like every
+  other field, so cancelling discards a fresh capture and never disturbs the
+  existing photo. "Set as Container Cover" edits the *container* (`cover_item_id`
+  via the local-mutation path) and applies immediately. A cleanup ledger
+  (`sessionRefs` + `originalRef`) deletes replaced/intermediate files at commit
+  and only the uncommitted captures on cancel — no leak on the common path.
+- **DL44 — Local photo-file cleanup is UI-layer; inbound/cascade stale files
+  are tolerated.** Replace/remove/delete in the editor and swipe-delete in
+  container detail delete the local files (§4). Peer-side replace/delete and
+  container/room *cascade* deletes do **not** eagerly delete this device's
+  cached files — a bounded, non-correctness cache leak (P13 makes missing/stale
+  first-class) reclaimed by Reset Catalog. Kept the critical delete/merge paths
+  untouched rather than thread refs through every cascade.
+- **DL45 — `PhotoStore` injection.** A `Sendable` value type over a `Photos/`
+  root, injected via `@Environment(\.photoStore)` (temp-rooted default for
+  previews). The coordinator resolves its own `PhotoStore.onDisk()` at the same
+  real root — so the `SyncCoordinator(database:status:)` init signature is
+  unchanged and `OrphanPersistenceTests` is unaffected.
+- **DL46 — No `project.yml` change.** The app target globs the whole
+  `ClutterCatcher/` directory, so `Shared/PhotoStore.swift` and
+  `Features/Items/ItemPhotoViews.swift` are picked up automatically;
+  `xcodegen generate` on the Mac still regenerates the project. No plist change
+  (`NSCameraUsageDescription` already ships for the scanner).
+- **DL47 — Migration v4.** `ALTER TABLE containers ADD COLUMN cover_item_id
+  TEXT` — additive, nullable, no backfill, no item migration; `cover_item_id`
+  is a SOFT reference (no FK — a hard container→item FK would cycle against the
+  verified parents-first order). `items.photo_asset_ref` already existed (v1);
+  M6 only defines its meaning (P6).
+- **DL48 — Branch.** Developed on `claude/item-photos-m6-1eeil1` (the harness's
+  designated branch for this run), not the `feat/item-photos` named in the
+  kickoff doc. Same content; Owen can rename/re-target locally if he prefers.
+
 ## Questions for Owen
 
-*(none open)*
+1. **HEIC vs JPEG (P12).** Shipped JPEG ~0.8 with `.jpg` filenames (DL42);
+   HEIC would cut asset/bandwidth size. Switching is trivial and
+   sync-contract-neutral (the file is a local cache; the ref is
+   device-independent). Want HEIC before the Production deploy, or is JPEG fine?
+2. **Auto-cover the first photo in a coverless container?** (§10 open
+   sub-decision.) Shipped the plan's default — **manual only** (matches P4).
+   Say the word to auto-designate the first photo and I'll flip it.
+3. **Inbound/cascade stale-file cleanup (DL44).** Currently a bounded cache
+   leak reclaimed by Reset Catalog / Re-download. Acceptable, or do you want an
+   eager "clean up unused photos" GC sweep?
+4. **"Re-download Photos" reach (P13).** It re-fetches changes (best-effort);
+   a reinstalled device re-downloads everything naturally (fresh change token).
+   A device that kept its token but lost its files won't force a re-download
+   without a token reset — flag if you hit that on-device and I'll add one.
+
+### Check-first for Owen (uncompiled — verify these before a clean build)
+
+API signatures I could not confirm without the SDK, ranked by risk:
+- `PhotosPicker` flow: `.photosPicker(isPresented:selection:matching:)` +
+  `PhotosPickerItem.loadTransferable(type: Data.self)` (ItemEditorView).
+- `CameraPicker`'s `UIImagePickerController` delegate under strict concurrency
+  — mirrored the proven `DataScannerRepresentable` `@MainActor`-coordinator
+  shape, but the picker's `.originalImage`/delegate specifics are unverified.
+- `MagnificationGesture` (FullScreenPhotoView) — may be soft-deprecated in
+  favour of `MagnifyGesture`; expect at most a warning.
+- CKAsset attach/read (`record["photo"] = CKAsset(fileURL:)`,
+  `record["photo"] as? CKAsset`) and `record["photo"] = nil` clear semantics.
+- `UIImage` `Sendable`ness is deliberately NOT relied on — no `UIImage`
+  crosses an isolation boundary (the loader offloads only `Data`).
 
 1. ~~**Reset Catalog semantics once the household shares the zone.**~~
    **Resolved (Owen, M3 kickoff): reset is owner-only.** Shipped in Run 3:
@@ -364,3 +466,19 @@ cascade behavior were proven against real SQLite (see VERIFY report);
 `xcodegen generate` + build + test + simulator walkthrough happen on Owen's
 Mac as the first `scripts/build.sh` / `scripts/test.sh` runs. Expect the
 possibility of small first-build fixups; everything else is in place.
+
+## Environment note — Run 4 (M6 item photos)
+
+Same situation as Run 1: executed in a Linux container with **no Xcode, no
+Swift toolchain, no `xcodegen`, no simulator**. The branch
+`claude/item-photos-m6-1eeil1` is **reviewed source, not a green build** — no
+`xcodegen generate` / `scripts/build.sh` / `scripts/test.sh` was (or could be)
+run here, and none is claimed. A deliberate self-review pass ran against the
+Run 1.1 first-build traps (DL12–DL14) plus this slice's specifics
+(strict-concurrency actor boundaries, `#expect`-can't-throw, ≤ iOS 26 API
+surface), including independent multi-lens review of the diff; fixes from it
+are folded in. Expect small first-build fixups concentrated in the "Check-first
+for Owen" list above. **Owen's local gate** (`xcodegen generate` →
+`scripts/build.sh` → `scripts/test.sh` → simulator screenshots → the on-device
+two-account CKAsset/cover/wipe VERIFY) and the P14 Production schema deploy are
+his steps, exactly as the M6 plan specifies.

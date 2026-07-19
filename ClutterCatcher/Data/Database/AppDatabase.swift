@@ -129,6 +129,23 @@ struct AppDatabase: Sendable {
             }
         }
 
+        migrator.registerMigration("v4") { db in
+            // M6 item photos (P10): a container may point at one of its items
+            // as a "cover" whose photo represents it in room/container lists.
+            // Additive, nullable, no backfill — existing rows get NULL. It is
+            // a SOFT reference (no FK): a hard container→item FK would cycle
+            // against the item→container FK in the verified parents-first
+            // apply order, so display resolves it with graceful fallback.
+            try db.alter(table: "containers") { t in
+                t.add(column: "cover_item_id", .text)
+            }
+            // Note: `items.photo_asset_ref` already exists (migration v1); M6
+            // only defines its meaning (P6 — a synced photo id, not a path).
+            // The photo bytes ride as a CKAsset field on the Item record; the
+            // local files live under Application Support/Photos and are not a
+            // database concern (see Shared/PhotoStore.swift).
+        }
+
         return migrator
     }
 

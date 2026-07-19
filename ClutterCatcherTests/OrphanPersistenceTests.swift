@@ -87,7 +87,8 @@ import Testing
 
         let container = Container(
             id: AppDatabase.newID(), roomId: AppDatabase.newID(), name: "Bin",
-            notes: nil, labelSlot: nil, createdAt: stamp, updatedAt: stamp, createdBy: nil)
+            notes: nil, labelSlot: nil, coverItemId: nil,
+            createdAt: stamp, updatedAt: stamp, createdBy: nil)
         let record = orphanItem(containerId: container.id)
         try await database.writer.write { [stamp] db in
             try OrphanedRecord.buffer(db, records: [record], at: stamp)
@@ -131,7 +132,8 @@ import Testing
         let roomID = AppDatabase.newID()
         let container = Container(
             id: AppDatabase.newID(), roomId: roomID, name: "Bin",
-            notes: nil, labelSlot: nil, createdAt: stamp, updatedAt: stamp, createdBy: nil)
+            notes: nil, labelSlot: nil, coverItemId: nil,
+            createdAt: stamp, updatedAt: stamp, createdBy: nil)
         try await database.applyServerChanges { [stamp] apply in
             let room = Room(
                 id: roomID, name: "Garage", sortOrder: 0, icon: nil,

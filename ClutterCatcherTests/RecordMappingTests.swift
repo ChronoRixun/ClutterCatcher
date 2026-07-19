@@ -40,7 +40,7 @@ import Testing
     @Test func containerRoundTrips() throws {
         let container = Container(
             id: AppDatabase.newID(), roomId: AppDatabase.newID(), name: "Tool Bin",
-            notes: "top shelf", labelSlot: 12,
+            notes: "top shelf", labelSlot: 12, coverItemId: nil,
             createdAt: created, updatedAt: updated, createdBy: nil)
         let record = RecordMapper.record(for: .container(container), systemFields: nil, zoneID: Self.zone)
         #expect(record.recordType == "Container")
@@ -51,7 +51,7 @@ import Testing
     @Test func containerRoundTripsWithNilOptionals() throws {
         let container = Container(
             id: AppDatabase.newID(), roomId: AppDatabase.newID(), name: "Bin",
-            notes: nil, labelSlot: nil,
+            notes: nil, labelSlot: nil, coverItemId: nil,
             createdAt: created, updatedAt: updated, createdBy: nil)
         let record = RecordMapper.record(for: .container(container), systemFields: nil, zoneID: Self.zone)
         let parsed = try RecordMapper.parse(record)
@@ -67,6 +67,60 @@ import Testing
         #expect(record.recordType == "Item")
         let parsed = try RecordMapper.parse(record)
         #expect(parsed.row == .item(item))
+    }
+
+    // MARK: M6 — photos & cover
+
+    /// Outbound: the item keeps its `photo_asset_ref` string field (P6) *and*,
+    /// given a resolved local file URL, gains a `photo` CKAsset (P7). Inbound
+    /// parse ignores the CKAsset (P8) yet round-trips the id, and the parsed
+    /// record stays the pure `Equatable` value the orphan table depends on.
+    @Test func itemPhotoAttachesCKAssetAndRoundTripsPurely() throws {
+        let item = Item(
+            id: AppDatabase.newID(), containerId: AppDatabase.newID(), name: "Drill",
+            quantity: 1, notes: nil, categoryId: nil, photoAssetRef: "REF-PHOTO",
+            createdAt: created, updatedAt: updated, createdBy: nil)
+        // A real temp file so CKAsset has a valid fileURL.
+        let tempURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("\(AppDatabase.newID()).jpg")
+        try Data([0xFF, 0xD8, 0xFF, 0xD9]).write(to: tempURL)
+        defer { try? FileManager.default.removeItem(at: tempURL) }
+
+        let record = RecordMapper.record(
+            for: .item(item), systemFields: nil, zoneID: Self.zone, assetFileURL: tempURL)
+        #expect(record["photo_asset_ref"] as? String == "REF-PHOTO")
+        let asset = record["photo"] as? CKAsset
+        #expect(asset != nil, "a local file URL attaches the photo CKAsset")
+        #expect(asset?.fileURL == tempURL)
+
+        let parsed = try RecordMapper.parse(record)
+        #expect(parsed.row == .item(item), "the asset copy is coordinator-level; parse stays pure")
+    }
+
+    /// Outbound with no local file (bytes not on this device): the ref rides
+    /// but the asset field is left untouched, so a metadata-only edit never
+    /// clears the household's asset (§4).
+    @Test func itemWithoutLocalFileOmitsCKAsset() throws {
+        let item = Item(
+            id: AppDatabase.newID(), containerId: AppDatabase.newID(), name: "Drill",
+            quantity: 1, notes: nil, categoryId: nil, photoAssetRef: "REF-PHOTO",
+            createdAt: created, updatedAt: updated, createdBy: nil)
+        let record = RecordMapper.record(for: .item(item), systemFields: nil, zoneID: Self.zone)
+        #expect(record["photo_asset_ref"] as? String == "REF-PHOTO")
+        #expect(record["photo"] == nil, "no bytes on device → the asset field is left alone")
+        let parsed = try RecordMapper.parse(record)
+        #expect(parsed.row == .item(item))
+    }
+
+    @Test func containerCoverItemIdRoundTrips() throws {
+        let container = Container(
+            id: AppDatabase.newID(), roomId: AppDatabase.newID(), name: "Bin",
+            notes: nil, labelSlot: nil, coverItemId: "COVER-ITEM-ID",
+            createdAt: created, updatedAt: updated, createdBy: nil)
+        let record = RecordMapper.record(for: .container(container), systemFields: nil, zoneID: Self.zone)
+        #expect(record["cover_item_id"] as? String == "COVER-ITEM-ID")
+        let parsed = try RecordMapper.parse(record)
+        #expect(parsed.row == .container(container))
     }
 
     @Test func createdByStaysOutOfTheRecord() {

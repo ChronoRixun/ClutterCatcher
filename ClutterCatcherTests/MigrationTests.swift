@@ -28,7 +28,7 @@ import Testing
 
             let containers = try db.columns(in: "containers").map(\.name)
             #expect(Set(containers).isSuperset(of: [
-                "id", "room_id", "name", "notes", "label_slot",
+                "id", "room_id", "name", "notes", "label_slot", "cover_item_id",
                 "created_at", "updated_at", "created_by",
             ]))
 
@@ -85,6 +85,59 @@ import Testing
         }
     }
 
+    /// M6 migration v4 (P10): additive `cover_item_id` on `containers`, no
+    /// backfill — a row that existed before v4 keeps NULL — and v1–v3 still
+    /// apply in order. Driven through a partial migration so the "existing
+    /// row" is genuinely pre-v4.
+    @Test func v4AddsCoverItemIdAdditivelyWithoutBackfill() throws {
+        let dbQueue = try DatabaseQueue()
+        let migrator = AppDatabase.migrator
+        try migrator.migrate(dbQueue, upTo: "v3")
+
+        let roomID = AppDatabase.newID()
+        let containerID = AppDatabase.newID()
+        let now = Date()
+        try dbQueue.write { db in
+            try db.execute(
+                sql: """
+                    INSERT INTO rooms (id, name, sort_order, created_at, updated_at)
+                    VALUES (?, 'Garage', 0, ?, ?)
+                    """,
+                arguments: [roomID, now, now])
+            try db.execute(
+                sql: """
+                    INSERT INTO containers (id, room_id, name, created_at, updated_at)
+                    VALUES (?, ?, 'Bin', ?, ?)
+                    """,
+                arguments: [containerID, roomID, now, now])
+        }
+
+        // Column absent before v4.
+        let hadColumnBefore = try dbQueue.read { db in
+            try db.columns(in: "containers").map(\.name).contains("cover_item_id")
+        }
+        #expect(!hadColumnBefore)
+
+        try migrator.migrate(dbQueue) // apply v4
+
+        let cover = try dbQueue.read { db in
+            try String.fetchOne(
+                db, sql: "SELECT cover_item_id FROM containers WHERE id = ?",
+                arguments: [containerID])
+        }
+        #expect(cover == nil, "existing rows get cover_item_id = NULL (no backfill)")
+
+        // v2/v3 tables survive the full run — v4 didn't disturb the order.
+        let (hasEvents, hasOrphans, hasColumnNow) = try dbQueue.read { db in
+            (try db.tableExists("sync_events"),
+             try db.tableExists("orphaned_records"),
+             try db.columns(in: "containers").map(\.name).contains("cover_item_id"))
+        }
+        #expect(hasEvents)
+        #expect(hasOrphans)
+        #expect(hasColumnNow)
+    }
+
     @Test func foreignKeysAreEnforced() throws {
         let database = try AppDatabase.inMemory()
         try database.writer.write { db in
@@ -95,6 +148,7 @@ import Testing
                 name: "Orphan",
                 notes: nil,
                 labelSlot: nil,
+                coverItemId: nil,
                 createdAt: now,
                 updatedAt: now,
                 createdBy: nil)

@@ -7,6 +7,8 @@ struct ContainerDetailView: View {
     let containerID: String
 
     @Environment(\.appDatabase) private var appDatabase
+    @Environment(\.photoStore) private var photoStore
+    @Environment(\.syncCoordinator) private var coordinator
     @Environment(\.dismiss) private var dismiss
 
     @State private var detail: ContainerDetail?
@@ -134,10 +136,15 @@ struct ContainerDetailView: View {
                         .buttonStyle(.plain)
                     }
                     .onDelete { offsets in
-                        let ids = offsets.map { detail.items[$0].item.id }
+                        let deleted = offsets.map { detail.items[$0].item }
+                        let ids = deleted.map(\.id)
+                        let refs = deleted.compactMap(\.photoAssetRef)
                         Task {
                             do {
                                 try await itemRepository.deleteItems(ids: ids)
+                                // Local photo cache cleanup for the deleted
+                                // items (§4). CloudKit deletion is implicit.
+                                for ref in refs { try? photoStore.delete(id: ref) }
                             } catch {
                                 Log.data.error("Item delete failed: \(String(describing: error))")
                             }
@@ -150,6 +157,10 @@ struct ContainerDetailView: View {
                 QRLabelPreview(container: detail.container)
             }
         }
+        .refreshable {
+            // P13: pull-to-refresh nudges a fetch so missing photos download.
+            await coordinator?.requestPhotoRefetch()
+        }
     }
 }
 
@@ -158,6 +169,12 @@ private struct ItemRow: View {
 
     var body: some View {
         HStack(spacing: Tokens.spacingM) {
+            if let ref = entry.item.photoAssetRef {
+                // Leading thumbnail when present; placeholder when the ref is
+                // set but the file is still downloading/wiped (P13). Rows
+                // without a photo keep their original layout.
+                PhotoThumbnailView(ref: ref, size: 44)
+            }
             VStack(alignment: .leading) {
                 Text(entry.item.name)
                 if let categoryName = entry.categoryName {

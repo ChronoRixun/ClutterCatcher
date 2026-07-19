@@ -27,6 +27,13 @@ actor SyncCoordinator {
     private let database: AppDatabase
     private let status: SyncStatusModel
     private let container: CKContainer
+    /// The local photo cache (M6). The only new inbound side-effect (P8/P9)
+    /// lives here: after a fetched item record's row is applied — or before
+    /// it's buffered as an orphan — its `photo` CKAsset bytes are copied into
+    /// this cache (keyed by the device-independent `photo_asset_ref`). nil only
+    /// if Application Support is unreachable, in which case photos degrade to
+    /// the missing-asset placeholder (P13) rather than crashing sync.
+    private let photoStore: PhotoStore?
 
     private var engine: CKSyncEngine?
     private var started = false
@@ -46,6 +53,9 @@ actor SyncCoordinator {
         self.database = database
         self.status = status
         self.container = CKContainer(identifier: "iCloud.com.rixun.cluttercatcher")
+        // Resolves the same `Application Support/Photos` directory the UI's
+        // injected store uses; both are stateless value types over that root.
+        self.photoStore = try? PhotoStore.onDisk()
     }
 
     deinit {
@@ -94,6 +104,18 @@ actor SyncCoordinator {
                     pendingRecordZoneChanges: pending.map { $0.enginePendingChange(in: zoneID) })
             }
         }
+        fetchSoon()
+    }
+
+    /// Missing-asset recovery (P13). A referenced photo whose local file is
+    /// absent (fresh sync, a wipe, or a pruned cache) asks for a fetch: the
+    /// detail-open / pull-to-refresh path and the Settings "re-download photos"
+    /// affordance both land here. CKSyncEngine re-downloads assets as it
+    /// fetches record changes; a just-reinstalled device (no change token)
+    /// re-hydrates everything, which is the primary wipe/re-download case. It
+    /// is best-effort by design — it never blocks the UI and never mutates the
+    /// catalog.
+    func requestPhotoRefetch() async {
         fetchSoon()
     }
 
@@ -434,6 +456,7 @@ extension SyncCoordinator: CKSyncEngineDelegate {
         let changes = syncEngine.state.pendingRecordZoneChanges.filter { scope.contains($0) }
         guard !changes.isEmpty else { return nil }
         let database = database
+        let photoStore = photoStore
         return await CKSyncEngine.RecordZoneChangeBatch(pendingChanges: changes) { recordID in
             let id = recordID.recordName
             let snapshot: (row: SyncedRow, systemFields: Data?)?
@@ -458,8 +481,19 @@ extension SyncCoordinator: CKSyncEngineDelegate {
                 }
                 return nil
             }
+            // Outbound CKAsset attach (P7, §4): resolve the item's full-size
+            // file URL here and thread it into the pure mapper. Only attaches
+            // when the bytes are actually on this device; a metadata-only edit
+            // from a device lacking the file leaves the household's asset
+            // untouched (the mapper handles that).
+            let assetFileURL: URL? = {
+                guard case .item(let item) = snapshot.row,
+                      let ref = item.photoAssetRef else { return nil }
+                return photoStore?.existingFileURL(for: ref)
+            }()
             return RecordMapper.record(
-                for: snapshot.row, systemFields: snapshot.systemFields, zoneID: zoneID)
+                for: snapshot.row, systemFields: snapshot.systemFields,
+                zoneID: zoneID, assetFileURL: assetFileURL)
         }
     }
 }
@@ -506,6 +540,13 @@ extension SyncCoordinator {
     func handleFetchedRecordZoneChanges(_ event: CKSyncEngine.Event.FetchedRecordZoneChanges) async {
         var parsed: [ParsedServerRecord] = []
         var unparseable: [(type: String, id: String)] = []
+        // (P8/P9) The one new inbound side-effect: an item record's `photo`
+        // CKAsset. Its `fileURL` is a temp file valid only inside this delegate
+        // callback, so we read it off the LIVE record here — the mapper stays
+        // pure and `ParsedServerRecord` is untouched. Keyed by the parsed row's
+        // device-independent `photo_asset_ref` (§5/P7 is authoritative on the
+        // file layout; P8/P9's "id" is that photo id, not the item id).
+        var inboundPhotoAssets: [(ref: String, url: URL)] = []
         for modification in event.modifications {
             let record = modification.record
             if let share = record as? CKShare {
@@ -513,12 +554,24 @@ extension SyncCoordinator {
                 continue
             }
             do {
-                parsed.append(try RecordMapper.parse(record))
+                let parsedRecord = try RecordMapper.parse(record)
+                if case .item(let item) = parsedRecord.row,
+                   let ref = item.photoAssetRef,
+                   let asset = record["photo"] as? CKAsset,
+                   let url = asset.fileURL {
+                    inboundPhotoAssets.append((ref, url))
+                }
+                parsed.append(parsedRecord)
             } catch {
                 Log.sync.error("Dropping unparseable server record \(record.recordID.recordName): \(String(describing: error))")
                 unparseable.append((record.recordType, record.recordID.recordName))
             }
         }
+        // Copy the bytes now, before the batch is applied (covers P8's
+        // apply-side and P9's buffer-side in one seam: the file is on disk
+        // before either the row lands or the record is buffered as an orphan,
+        // and `ensureLocalFile` is a no-op when the file already exists).
+        materializeInboundPhotoAssets(inboundPhotoAssets)
         if !unparseable.isEmpty {
             let receipts = unparseable
             try? await database.writer.write { db in
@@ -926,6 +979,23 @@ extension SyncCoordinator {
     }
 
     // MARK: Helpers
+
+    /// Copies each inbound item photo's bytes into the local cache (P8/P9).
+    /// Keyed by the device-independent `photo_asset_ref`; `ensureLocalFile`
+    /// only writes when the file is missing, so re-fetches and echoes cost
+    /// nothing. A file error never derails sync — the photo just falls back to
+    /// the missing-asset placeholder (P13) and re-materializes on the next
+    /// fetch that carries the asset.
+    func materializeInboundPhotoAssets(_ assets: [(ref: String, url: URL)]) {
+        guard let photoStore, !assets.isEmpty else { return }
+        for asset in assets {
+            do {
+                try photoStore.ensureLocalFile(for: asset.ref, copyingFrom: asset.url)
+            } catch {
+                Log.sync.error("Materializing inbound photo \(asset.ref) failed: \(String(describing: error))")
+            }
+        }
+    }
 
     static func sortedParentsFirst(_ records: [ParsedServerRecord]) -> [ParsedServerRecord] {
         records.sorted { typeIndex($0.row.recordType) < typeIndex($1.row.recordType) }
