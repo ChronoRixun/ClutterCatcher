@@ -3,6 +3,7 @@ import SwiftUI
 /// Local search across the whole catalog: rooms, containers, items, categories.
 struct SearchView: View {
     @Environment(\.appDatabase) private var appDatabase
+    @Environment(ThemeStore.self) private var themeStore
 
     @State private var query = ""
     @State private var results = SearchResults()
@@ -18,7 +19,15 @@ struct SearchView: View {
             Group {
                 if trimmedQuery.isEmpty {
                     ContentUnavailableView {
-                        Label("Find Anything", systemImage: "magnifyingglass")
+                        if let fenColors = themeStore.theme.fenColors {
+                            VStack(spacing: Tokens.spacingM) {
+                                FenFigure(colors: fenColors)
+                                    .frame(height: 88)
+                                Text("Find Anything")
+                            }
+                        } else {
+                            Label("Find Anything", systemImage: "magnifyingglass")
+                        }
                     } description: {
                         Text("Search your rooms, containers, items, and categories — \"where are the Christmas lights?\"")
                     }
@@ -29,6 +38,7 @@ struct SearchView: View {
                 }
             }
             .navigationTitle("Search")
+            .themedScreen()
             .catalogDestinations()
         }
         .searchable(text: $query, prompt: "Rooms, containers, items…")
@@ -64,6 +74,7 @@ struct SearchView: View {
                         }
                     }
                 }
+                .themedRow()
             }
             if !results.containers.isEmpty {
                 Section("Containers") {
@@ -78,6 +89,7 @@ struct SearchView: View {
                         }
                     }
                 }
+                .themedRow()
             }
             if !results.items.isEmpty {
                 Section("Items") {
@@ -103,6 +115,7 @@ struct SearchView: View {
                         }
                     }
                 }
+                .themedRow()
             }
             if !results.categories.isEmpty {
                 Section("Categories") {
@@ -115,6 +128,7 @@ struct SearchView: View {
                         }
                     }
                 }
+                .themedRow()
             }
         }
     }

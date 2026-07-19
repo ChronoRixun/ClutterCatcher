@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 struct SettingsView: View {
     @Environment(\.appDatabase) private var appDatabase
@@ -6,11 +7,15 @@ struct SettingsView: View {
     @Environment(SyncStatusModel.self) private var syncStatus
     @Environment(AppModel.self) private var appModel
     @Environment(\.photoStore) private var photoStore
+    @Environment(ThemeStore.self) private var themeStore
 
     @State private var stats = CatalogStats()
     @State private var isConfirmingReset = false
     @State private var isCleaningPhotos = false
     @State private var photoCleanupResult: String?
+    /// The active alternate-icon name, re-read whenever this screen appears
+    /// (the pickers may have changed it).
+    @State private var currentIconName: String?
 
     private var repository: SettingsRepository { SettingsRepository(database: appDatabase) }
 
@@ -27,15 +32,41 @@ struct SettingsView: View {
         return "\(short ?? "?") (\(build ?? "?"))"
     }
 
+    /// Display name for the App Icon row: the matching entry's, or Classic's
+    /// when no alternate is set.
+    private var currentIconDisplayName: String {
+        AppIcons.entry(forIconName: currentIconName)?.displayName ?? "Classic"
+    }
+
     var body: some View {
         NavigationStack {
             Form {
+                // M4 (§4): personalization on top — local, per-device state.
+                Section {
+                    NavigationLink {
+                        ThemePickerView()
+                    } label: {
+                        LabeledContent("Theme", value: themeStore.theme.displayName)
+                    }
+                    NavigationLink {
+                        AppIconPickerView()
+                    } label: {
+                        LabeledContent("App Icon", value: currentIconDisplayName)
+                    }
+                } header: {
+                    Text("Make It Yours")
+                } footer: {
+                    Text("Theme and icon are yours alone — everyone in the family picks their own.")
+                }
+                .themedRow()
+
                 Section("Catalog") {
                     LabeledContent("Rooms", value: "\(stats.roomCount)")
                     LabeledContent("Containers", value: "\(stats.containerCount)")
                     LabeledContent("Items", value: "\(stats.itemCount)")
                     LabeledContent("Categories", value: "\(stats.categoryCount)")
                 }
+                .themedRow()
 
                 Section {
                     if let seededAt = stats.seedAppliedAt {
@@ -48,6 +79,7 @@ struct SettingsView: View {
                 } footer: {
                     Text("The starter rooms and categories are applied once, on first launch.")
                 }
+                .themedRow()
 
                 Section("About") {
                     LabeledContent("Version", value: appVersion)
@@ -56,6 +88,7 @@ struct SettingsView: View {
                         SyncActivityView()
                     }
                 }
+                .themedRow()
 
                 Section {
                     Button("Re-download Photos") {
@@ -65,6 +98,7 @@ struct SettingsView: View {
                 } footer: {
                     Text("Fetches item photos that haven't reached this device yet — after a reinstall, or if a photo is showing a placeholder.")
                 }
+                .themedRow()
 
                 Section {
                     Button("Clean Up Unused Photos") {
@@ -83,6 +117,7 @@ struct SettingsView: View {
                         Text("Removes cached photo files that no item uses anymore. Photos still in use are never touched.")
                     }
                 }
+                .themedRow()
 
                 Section {
                     Button("Reset Catalog…", role: .destructive) {
@@ -96,8 +131,13 @@ struct SettingsView: View {
                         Text("Deletes every room, container, item, and category — from iCloud too, once sync is on — then re-applies the starter catalog. Printed labels stop resolving.")
                     }
                 }
+                .themedRow()
             }
             .navigationTitle("Settings")
+            .themedScreen()
+            .onAppear {
+                currentIconName = UIApplication.shared.alternateIconName
+            }
             .confirmationDialog(
                 "Erase the whole catalog on this device?",
                 isPresented: $isConfirmingReset,

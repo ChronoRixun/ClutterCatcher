@@ -4,6 +4,7 @@ struct RootView: View {
     @Environment(Router.self) private var router
     @Environment(AppModel.self) private var appModel
     @Environment(SyncStatusModel.self) private var syncStatus
+    @Environment(ThemeStore.self) private var themeStore
     // A stable reference to the singleton; @Observable tracking makes its
     // phase changes re-render this view.
     @State private var acceptance = ShareAcceptanceModel.shared
@@ -19,6 +20,11 @@ struct RootView: View {
                 catalogTabs
             }
         }
+        // T6: SF Pro Rounded everywhere, all themes including Classic. T5/T1:
+        // the tint is the only global color hook — Classic's is nil, leaving
+        // the asset-catalog AccentColor in charge exactly as before M4.
+        .fontDesign(.rounded)
+        .tint(themeStore.theme.tint)
         .confirmationDialog(
             "Join this household?",
             isPresented: Binding(

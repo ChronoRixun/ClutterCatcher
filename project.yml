@@ -52,6 +52,13 @@ targets:
         # iPhone-only for M0–M6; revisit iPad in the parking lot (OPEN_ITEMS).
         TARGETED_DEVICE_FAMILY: "1"
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        # M4 (T7): compiles every AppIcon-*.appiconset as an alternate icon
+        # and registers it in the Info.plist for setAlternateIconName.
+        # NOTE: T7 names this ..._APPICON_NAMES — that's the legacy spelling,
+        # silently ignored by Xcode 26's build spec; _ASSETS is the real one
+        # (verified in AssetCatalogCompiler.xcspec, maps to
+        # `--include-all-app-icons`).
+        ASSETCATALOG_COMPILER_INCLUDE_ALL_APPICON_ASSETS: YES
         ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
         INFOPLIST_KEY_UIUserInterfaceStyle: Automatic
     info:

@@ -20,4 +20,8 @@ extension Setting {
     /// Present while onboarding's "Join a household" choice waits for a share
     /// invite; cleared when acceptance adopts the participant role (M3-B).
     static let joinPendingKey = "onboarding.joinPending"
+    /// The selected theme's `ThemeID` raw value (M4, T2). Per-device by
+    /// design — the plain settings path is exactly why theming has zero
+    /// sync surface.
+    static let themeIDKey = "theme_id"
 }

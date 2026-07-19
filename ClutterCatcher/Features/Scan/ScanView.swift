@@ -19,10 +19,24 @@ struct ScanView: View {
         case lookupFailed
     }
 
+    /// A resolved container scan, driving the §4 "Found it!" card. The card
+    /// is the static M4a version; its pop/confetti/Fen-peek personality is
+    /// M4b. Room payloads still navigate immediately (rooms have no card in
+    /// the design), as do Camera-app deep links, which never pass through
+    /// this screen.
+    private struct ScanSuccess {
+        let containerID: String
+        let name: String
+        let roomName: String
+        let itemCount: Int
+    }
+
     @Environment(\.appDatabase) private var appDatabase
     @Environment(Router.self) private var router
+    @Environment(ThemeStore.self) private var themeStore
 
     @State private var scanProblem: ScanProblem?
+    @State private var scanSuccess: ScanSuccess?
     @State private var manualEntry = ""
     @State private var cameraAccess: CameraAccess = .undetermined
 
@@ -67,11 +81,12 @@ struct ScanView: View {
 
     private var scannerBody: some View {
         ZStack {
-            // Pause while a problem overlay is up, and stop the capture
-            // session entirely when another tab is selected (a successful
-            // scan switches tabs — the camera must not stay live behind it).
+            // Pause while a problem or success card is up, and stop the
+            // capture session entirely when another tab is selected ("Open
+            // It Up" switches tabs — the camera must not stay live behind
+            // it).
             DataScannerRepresentable(
-                isActive: router.selectedTab == .scan && scanProblem == nil
+                isActive: router.selectedTab == .scan && scanProblem == nil && scanSuccess == nil
             ) { payload in
                 handle(scanned: payload)
             }
@@ -79,7 +94,9 @@ struct ScanView: View {
 
             VStack {
                 Spacer()
-                if let scanProblem {
+                if let scanSuccess {
+                    successCard(for: scanSuccess)
+                } else if let scanProblem {
                     problemCard(for: scanProblem)
                 } else {
                     Text("Point at a ClutterCatcher label")
@@ -97,11 +114,26 @@ struct ScanView: View {
 
     private func manualEntryBody(reason: String) -> some View {
         Form {
-            Section {
-                ContentUnavailableView {
-                    Label("Camera Scanning Unavailable", systemImage: "qrcode.viewfinder")
-                } description: {
-                    Text("\(reason) Paste a label code below instead — either the cluttercatcher:// link or the bare UUID.")
+            // The result card takes the notice's slot — once a lookup has
+            // resolved, the "camera unavailable" explanation is noise, and
+            // at the bottom the card would hide behind the tab bar.
+            if let scanSuccess {
+                Section {
+                    successCard(for: scanSuccess)
+                        .listRowBackground(Color.clear)
+                }
+            } else if let scanProblem {
+                Section {
+                    problemCard(for: scanProblem)
+                        .listRowBackground(Color.clear)
+                }
+            } else {
+                Section {
+                    ContentUnavailableView {
+                        Label("Camera Scanning Unavailable", systemImage: "qrcode.viewfinder")
+                    } description: {
+                        Text("\(reason) Paste a label code below instead — either the cluttercatcher:// link or the bare UUID.")
+                    }
                 }
             }
             Section("Label code") {
@@ -114,13 +146,9 @@ struct ScanView: View {
                 }
                 .disabled(manualEntry.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
             }
-            if let scanProblem {
-                Section {
-                    problemCard(for: scanProblem)
-                        .listRowBackground(Color.clear)
-                }
-            }
+            .themedRow()
         }
+        .themedScreen()
     }
 
     // MARK: Resolution
@@ -133,28 +161,75 @@ struct ScanView: View {
         let database = appDatabase
         Task {
             do {
-                let route: Route? = try await database.writer.read { db in
-                    switch parsed {
-                    case .container(let uuid):
-                        let id = uuid.uuidString
-                        return try Container.exists(db, key: id) ? .container(id: id) : nil
-                    case .room(let uuid):
-                        let id = uuid.uuidString
-                        return try Room.exists(db, key: id) ? .room(id: id) : nil
+                switch parsed {
+                case .container(let uuid):
+                    let id = uuid.uuidString
+                    let success: ScanSuccess? = try await database.writer.read { db in
+                        guard let container = try Container.fetchOne(db, key: id) else {
+                            return nil
+                        }
+                        let roomName = try String.fetchOne(
+                            db, sql: "SELECT name FROM rooms WHERE id = ?",
+                            arguments: [container.roomId]) ?? ""
+                        let itemCount = try Int.fetchOne(
+                            db, sql: "SELECT COUNT(*) FROM items WHERE container_id = ?",
+                            arguments: [id]) ?? 0
+                        return ScanSuccess(
+                            containerID: id, name: container.name,
+                            roomName: roomName, itemCount: itemCount)
                     }
-                }
-                if let route {
-                    scanProblem = nil
-                    manualEntry = ""
-                    router.navigate(to: route)
-                } else {
-                    scanProblem = .notFound(scanned: payload)
+                    if let success {
+                        scanProblem = nil
+                        manualEntry = ""
+                        scanSuccess = success
+                    } else {
+                        scanProblem = .notFound(scanned: payload)
+                    }
+                case .room(let uuid):
+                    let id = uuid.uuidString
+                    let exists = try await database.writer.read { db in
+                        try Room.exists(db, key: id)
+                    }
+                    if exists {
+                        scanProblem = nil
+                        manualEntry = ""
+                        router.navigate(to: .room(id: id))
+                    } else {
+                        scanProblem = .notFound(scanned: payload)
+                    }
                 }
             } catch {
                 Log.data.error("Scan lookup failed: \(String(describing: error))")
                 scanProblem = .lookupFailed
             }
         }
+    }
+
+    /// §4: the full-card scan-success state — static in M4a, personality in
+    /// M4b. "Scan Again" is the not-that-bin escape; without it the paused
+    /// scanner would have no way back.
+    private func successCard(for success: ScanSuccess) -> some View {
+        VStack(spacing: Tokens.spacingM) {
+            Text("Found it!")
+                .font(.title2.bold())
+            Text("\(success.name) · \(success.roomName) · ^[\(success.itemCount) item](inflect: true)")
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+            Button("Open It Up") {
+                scanSuccess = nil
+                router.navigate(to: .container(id: success.containerID))
+            }
+            .buttonStyle(.borderedProminent)
+            Button("Scan Again") {
+                scanSuccess = nil
+            }
+            .font(.subheadline)
+        }
+        .padding(Tokens.spacingL)
+        .frame(maxWidth: .infinity)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: Tokens.cornerRadius))
+        .padding(Tokens.spacingL)
     }
 
     private func problemCard(for problem: ScanProblem) -> some View {
