@@ -430,16 +430,72 @@ note below; same precedent as Run 1).
   First live cross-account CKAsset verified same day: photo set on Owen's
   device, appeared on Shelley's.
 
+### 2026-07-19 — Run 5 (M6.1, HEIC + photo cache GC — local Mac, green build)
+
+Slice per `planning/m6.1-heic-gc-plan.md` (P15–P20). Local-only; no schema
+change, no migration, no CloudKit deploy; the DL20 write paths untouched (the
+GC's database access is read-only). Built and tested on Owen's Mac under
+stable Xcode 26.6 — `scripts/test.sh` green, 166 tests / 20 suites (three new:
+PhotoEncodingTests, PhotoSweepTests, LivePhotoRefTests; the M6-era
+PhotoStoreTests pass unchanged, as P16 promised).
+
+- **DL51 — HEIC switch (closes Run 4 question 1; supersedes DL42's interim).**
+  `PhotoStore` encodes through one internal `encode(_:)` seam used by full
+  image and thumbnail alike (P15/P17): `CGImageDestination` with
+  `UTType.heic` and lossy quality 0.8 — `UIImage.heicData()` has no quality
+  parameter — falling back to `jpegData` when HEIC fails or is skipped. A
+  `preferredEncoding` init parameter (default `.heic`) is the injection seam
+  the fallback test uses; `jpegQuality` renamed `encodingQuality` (was
+  PhotoStore-internal only). File names stay `Photos/<ref>.jpg` /
+  `<ref>_thumb.jpg` regardless of encoding (P16, documented on
+  `fileURL(for:)`: ".jpg means image file"); no lookup changes, no migration,
+  mixed JPEG/HEIC caches coexist. The encode test's container-format
+  assertion is gated on `isHEICEncodingAvailable`
+  (`CGImageDestinationCopyTypeIdentifiers`, §4's CI caveat) with the decode
+  round-trip as the unconditional floor — and a throwaway probe confirmed the
+  encoder IS present on the iPhone 17 / iOS 26.5 simulator, so the HEIC
+  assertions genuinely ran in this suite, not just the gate.
+- **DL52 — Sweep semantics the plan's words left open (P18/P19).** (a) The
+  1-hour age guard is enforced **per pair, not per file**: a pair is deleted
+  only when *every* file of it predates the cutoff, so one fresh file
+  protects its sibling — deleting a full image out from under a fresh thumb
+  (or vice versa; `regenerateThumbnailIfNeeded` can freshen just the thumb)
+  would tear exactly the pair the guard exists to protect. Satisfies P19's
+  "skip any file within the hour" and strengthens it. (b) Every `*.jpg` in
+  `Photos/` parses as `<ref>[_thumb].jpg` with no UUID-format validation —
+  inbound refs are opaque peer-minted strings and the directory is wholly
+  PhotoStore's; non-`.jpg` files are never touched; an unreadable
+  modification date counts as fresh (skip). A stray thumb with no full still
+  sweeps. (c) `sweepUnusedPhotos` never throws: a missing `Photos/` dir is a
+  zero result, and per-file removal failures are logged and skipped (P20 — a
+  leftover file is the status quo, not a fault). Note the age guard is doing
+  real correctness work, not just editor-safety: DL40 materializes inbound
+  asset bytes *before* the row lands, so a concurrent live-set read can't see
+  that ref yet — but that file is seconds old, and the guard covers it.
+- **DL53 — Live set assembled read-only; sweep runs off-main from Settings.**
+  `SettingsRepository.livePhotoRefs()` returns DISTINCT non-nil
+  `items.photo_asset_ref` ∪ refs of Item rows decoded from
+  `orphaned_records` (P18 — covers, via item ids, container covers too). It
+  deliberately does **not** use `OrphanedRecord.loadAll`, which prunes
+  undecodable rows and needs a write connection — this read prunes nothing
+  (test-asserted), keeping the whole slice off the DL20 write paths.
+  Undecodable orphans contribute no refs; their bytes are sweepable (the
+  drain could never apply them either). SettingsView runs the sweep in a
+  detached task with cutoff `now − PhotoStore.sweepAgeGuard`; if the live-set
+  read itself fails there is **no** sweep at all (never guess at what's
+  referenced) and the footer shows a non-alarming "Couldn't clean up right
+  now." Success reports "Removed N files, freed X MB" / "Nothing to clean
+  up." transiently in the section footer (P20).
+
 ## Questions for Owen
 
 All four Run 4 questions resolved (Owen, 2026-07-19, post-VERIFY-start):
 
-1. ~~**HEIC vs JPEG (P12).**~~ **Resolved: switch to HEIC** (DL51 pending
-   implementation). iPhone-only fleet on iOS 26+ — HEIC native since iOS 11,
+1. ~~**HEIC vs JPEG (P12).**~~ **Resolved: switch to HEIC** — shipped in Run 5
+   (DL51). iPhone-only fleet on iOS 26+ — HEIC native since iOS 11,
    decode is content-based so existing JPEG cache files and already-uploaded
    JPEG assets coexist with new HEIC ones; no migration. Keep the JPEG-encode
-   fallback path per the original P12 wording. Queued for the M6.1 follow-up
-   run alongside the GC sweep.
+   fallback path per the original P12 wording.
 2. ~~**Auto-cover the first photo in a coverless container?**~~ **Resolved:
    deferred** — stays manual-only for now; moved to the parking lot as **FU2**,
    to revisit after polish.
@@ -450,7 +506,7 @@ All four Run 4 questions resolved (Owen, 2026-07-19, post-VERIFY-start):
    family app. Design constraint: the sweep must never delete refs staged in an
    open editor session (`sessionRefs` are DB-invisible until Save), so it runs
    on demand from Settings or at launch before any editor exists — never on a
-   background timer. Queued for the M6.1 follow-up run.
+   background timer. Shipped in Run 5 (DL52/DL53).
 4. ~~**"Re-download Photos" reach (P13).**~~ **Resolved: ship as-is.**
    Best-effort re-fetch is the accepted behavior; a token-reset affordance is
    only warranted if the kept-token/lost-files case is ever actually hit

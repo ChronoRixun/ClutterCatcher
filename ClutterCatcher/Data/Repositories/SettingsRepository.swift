@@ -40,6 +40,33 @@ struct SettingsRepository: Sendable {
         }
     }
 
+    /// Every photo ref the catalog still needs bytes for, assembled for the
+    /// GC sweep's `keeping:` set (P18): every non-nil `items.photo_asset_ref`
+    /// — container covers resolve through an item id, so this covers them —
+    /// plus the ref of every Item row buffered in `orphaned_records`, whose
+    /// bytes were materialized at buffer time and are expected on disk at
+    /// drain (P9). Read-only by design (the DL20 write paths are untouched by
+    /// the whole GC slice), which is why this decodes orphans directly rather
+    /// than through `OrphanedRecord.loadAll` — that one prunes undecodable
+    /// rows and needs a write connection. Undecodable payloads contribute no
+    /// refs; their files, if any, are sweepable (the drain can never apply
+    /// them either).
+    func livePhotoRefs() async throws -> Set<String> {
+        try await database.writer.read { db in
+            var refs = Set(try String.fetchAll(db, sql: """
+                SELECT DISTINCT photo_asset_ref FROM items
+                WHERE photo_asset_ref IS NOT NULL
+                """))
+            for orphan in try OrphanedRecord.fetchAll(db) {
+                if case .item(let item) = orphan.parsedServerRecord()?.row,
+                   let ref = item.photoAssetRef {
+                    refs.insert(ref)
+                }
+            }
+            return refs
+        }
+    }
+
     /// Thrown when a participant device tries to reset the shared catalog —
     /// owner-only by Owen's M3 ruling; the Settings row is disabled in
     /// participant role, this guard is the backstop.

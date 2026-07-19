@@ -5,9 +5,12 @@ struct SettingsView: View {
     @Environment(\.syncCoordinator) private var coordinator
     @Environment(SyncStatusModel.self) private var syncStatus
     @Environment(AppModel.self) private var appModel
+    @Environment(\.photoStore) private var photoStore
 
     @State private var stats = CatalogStats()
     @State private var isConfirmingReset = false
+    @State private var isCleaningPhotos = false
+    @State private var photoCleanupResult: String?
 
     private var repository: SettingsRepository { SettingsRepository(database: appDatabase) }
 
@@ -64,6 +67,24 @@ struct SettingsView: View {
                 }
 
                 Section {
+                    Button("Clean Up Unused Photos") {
+                        isCleaningPhotos = true
+                        photoCleanupResult = nil
+                        Task {
+                            await runPhotoCleanup()
+                            isCleaningPhotos = false
+                        }
+                    }
+                    .disabled(isCleaningPhotos)
+                } footer: {
+                    if let photoCleanupResult {
+                        Text(photoCleanupResult)
+                    } else {
+                        Text("Removes cached photo files that no item uses anymore. Photos still in use are never touched.")
+                    }
+                }
+
+                Section {
                     Button("Reset Catalog…", role: .destructive) {
                         isConfirmingReset = true
                     }
@@ -103,6 +124,30 @@ struct SettingsView: View {
                     Log.data.error("Stats observation failed: \(String(describing: error))")
                 }
             }
+        }
+    }
+
+    /// P18/P19/P20: assemble the live ref set (items table ∪ orphan buffer),
+    /// then sweep off the main actor. If the live set can't be read there is
+    /// no safe sweep at all — never guess at what's referenced.
+    private func runPhotoCleanup() async {
+        do {
+            let live = try await repository.livePhotoRefs()
+            let store = photoStore
+            let cutoff = Date.now.addingTimeInterval(-PhotoStore.sweepAgeGuard)
+            let result = await Task.detached(priority: .utility) {
+                store.sweepUnusedPhotos(keeping: live, olderThan: cutoff)
+            }.value
+            if result.filesRemoved == 0 {
+                photoCleanupResult = "Nothing to clean up."
+            } else {
+                let files = result.filesRemoved == 1 ? "1 file" : "\(result.filesRemoved) files"
+                let freed = result.bytesFreed.formatted(.byteCount(style: .file))
+                photoCleanupResult = "Removed \(files), freed \(freed)."
+            }
+        } catch {
+            Log.data.error("Photo cleanup failed reading the live set: \(String(describing: error))")
+            photoCleanupResult = "Couldn't clean up right now."
         }
     }
 }

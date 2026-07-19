@@ -1,5 +1,7 @@
 import Foundation
+import ImageIO
 import UIKit
+import UniformTypeIdentifiers
 
 /// Owns the on-device photo cache for M6 item photos (`Photos/` under
 /// Application Support). Pure file + image work — it has **no CloudKit
@@ -22,13 +24,24 @@ struct PhotoStore: Sendable {
     /// photos yet) touches nothing.
     let root: URL
 
+    /// Which encoder `encode(_:)` tries first. `.heic` is the shipping value
+    /// (P15); `.jpeg` skips straight to the fallback encoder — the injection
+    /// seam the §4 fallback test uses.
+    let preferredEncoding: Encoding
+
+    enum Encoding: Sendable {
+        case heic
+        case jpeg
+    }
+
     /// Longest edge, in pixels, of the stored full-size image (P12).
     static let maxFullEdge: CGFloat = 2048
     /// Longest edge, in pixels, of the cached list thumbnail. Ample for a
     /// ~44 pt row at 3× (≈132 px) with headroom for larger Dynamic Type.
     static let maxThumbEdge: CGFloat = 320
-    /// JPEG quality for both full and thumbnail (P12 ≈ 0.8).
-    static let jpegQuality: CGFloat = 0.8
+    /// Lossy compression quality for both full and thumbnail, whichever
+    /// encoder ends up writing the bytes (P12/P15 ≈ 0.8).
+    static let encodingQuality: CGFloat = 0.8
 
     enum PhotoStoreError: Error {
         case couldNotEncodeImage
@@ -37,8 +50,9 @@ struct PhotoStore: Sendable {
 
     // MARK: Construction
 
-    init(root: URL) {
+    init(root: URL, preferredEncoding: Encoding = .heic) {
         self.root = root
+        self.preferredEncoding = preferredEncoding
     }
 
     /// The real device store: `Application Support/Photos`.
@@ -59,6 +73,11 @@ struct PhotoStore: Sendable {
 
     // MARK: URLs
 
+    /// `.jpg` here means "image file", not JPEG (P16): locally captured
+    /// photos encode HEIC since M6.1 (JPEG before, and as fallback), and
+    /// inbound peer assets are opaque bytes copied verbatim — every reader
+    /// decodes by content (`UIImage` sniffs bytes, not names), so the frozen
+    /// id→path contract outlives any encoding change.
     func fileURL(for ref: String) -> URL {
         root.appending(path: "\(ref).jpg")
     }
@@ -87,20 +106,17 @@ struct PhotoStore: Sendable {
     // MARK: Import (local capture)
 
     /// Processes a freshly captured/picked image per P12 (fix orientation,
-    /// downscale to ≤ `maxFullEdge`, JPEG ≈ `jpegQuality`), writes the full
-    /// image and its thumbnail, and returns a fresh `photo_asset_ref`. A new
-    /// id every call means replacing a photo changes the ref, which is exactly
-    /// what makes LWW see an edit (P6).
+    /// downscale to ≤ `maxFullEdge`, encode HEIC-or-JPEG ≈ `encodingQuality`),
+    /// writes the full image and its thumbnail, and returns a fresh
+    /// `photo_asset_ref`. A new id every call means replacing a photo changes
+    /// the ref, which is exactly what makes LWW see an edit (P6).
     @discardableResult
     func importImage(_ image: UIImage) throws -> String {
         let ref = AppDatabase.newID()
         try createDirectoryIfNeeded()
 
         let full = Self.normalizedDownscaled(image, maxEdge: Self.maxFullEdge)
-        guard let fullData = full.jpegData(compressionQuality: Self.jpegQuality) else {
-            throw PhotoStoreError.couldNotEncodeImage
-        }
-        try fullData.write(to: fileURL(for: ref), options: .atomic)
+        try encode(full).write(to: fileURL(for: ref), options: .atomic)
 
         try writeThumbnail(from: full, ref: ref)
         return ref
@@ -148,6 +164,69 @@ struct PhotoStore: Sendable {
         }
     }
 
+    // MARK: Cleanup sweep (P18/P19)
+
+    /// How long a photo file must sit unmodified before the sweep may touch
+    /// it (P19). Editor-staged captures are DB-invisible until Save (DL43),
+    /// and the coordinator materializes inbound bytes *before* the row lands
+    /// (DL40) — both write files that a concurrent live-set read can't see,
+    /// and both are always younger than this guard when it matters.
+    static let sweepAgeGuard: TimeInterval = 60 * 60
+
+    struct SweepResult: Equatable, Sendable {
+        var filesRemoved = 0
+        var bytesFreed: Int64 = 0
+    }
+
+    /// Deletes every photo file pair whose ref is not in `live` and whose
+    /// files were all last modified before `cutoff` — pure filesystem work;
+    /// where the live set comes from is the caller's business (P18).
+    ///
+    /// - Every `*.jpg` in `Photos/` parses as `<ref>.jpg` / `<ref>_thumb.jpg`
+    ///   (the directory is wholly this store's); anything else is untouched.
+    /// - A pair is skipped whole when *any* of its files is newer than
+    ///   `cutoff` (or its date is unreadable) — deleting a full image out from
+    ///   under a fresh thumbnail (or vice versa) would tear a pair the age
+    ///   guard exists to protect.
+    /// - Per-file failures are logged and skipped, never thrown (P20): a
+    ///   leftover file is the status quo, not a fault.
+    func sweepUnusedPhotos(keeping live: Set<String>, olderThan cutoff: Date) -> SweepResult {
+        let keys: Set<URLResourceKey> = [.contentModificationDateKey, .fileSizeKey]
+        guard let contents = try? FileManager.default.contentsOfDirectory(
+            at: root, includingPropertiesForKeys: Array(keys)) else {
+            return SweepResult() // No Photos/ directory yet — nothing to clean.
+        }
+
+        var filesByRef: [String: [URL]] = [:]
+        for url in contents where url.pathExtension == "jpg" {
+            var name = url.deletingPathExtension().lastPathComponent
+            if name.hasSuffix("_thumb") { name = String(name.dropLast("_thumb".count)) }
+            guard !name.isEmpty else { continue }
+            filesByRef[name, default: []].append(url)
+        }
+
+        var result = SweepResult()
+        for (ref, urls) in filesByRef where !live.contains(ref) {
+            let allOld = urls.allSatisfy { url in
+                guard let modified = try? url.resourceValues(forKeys: keys)
+                    .contentModificationDate else { return false }
+                return modified < cutoff
+            }
+            guard allOld else { continue }
+            for url in urls {
+                let size = (try? url.resourceValues(forKeys: keys).fileSize) ?? 0
+                do {
+                    try FileManager.default.removeItem(at: url)
+                    result.filesRemoved += 1
+                    result.bytesFreed += Int64(size)
+                } catch {
+                    Log.data.error("Photo sweep couldn't remove \(url.lastPathComponent): \(String(describing: error))")
+                }
+            }
+        }
+        return result
+    }
+
     // MARK: Internals
 
     private func createDirectoryIfNeeded() throws {
@@ -157,10 +236,46 @@ struct PhotoStore: Sendable {
 
     private func writeThumbnail(from image: UIImage, ref: String) throws {
         let thumb = Self.normalizedDownscaled(image, maxEdge: Self.maxThumbEdge)
-        guard let data = thumb.jpegData(compressionQuality: Self.jpegQuality) else {
+        try encode(thumb).write(to: thumbnailURL(for: ref), options: .atomic)
+    }
+
+    /// The one encoding seam (P15/P17): HEIC via `CGImageDestination` with an
+    /// explicit lossy quality — `UIImage.heicData()` has no quality knob —
+    /// falling back to JPEG when HEIC fails or `preferredEncoding` skips it.
+    /// The fleet is all iOS 26 hardware with HEVC encoders, so the fallback is
+    /// paranoia (plus tiny images some encoders reject), but it keeps P12's
+    /// original "HEIC preferred / JPEG fallback" promise.
+    private func encode(_ image: UIImage) throws -> Data {
+        if preferredEncoding == .heic, let heic = Self.heicData(image) {
+            return heic
+        }
+        guard let jpeg = image.jpegData(compressionQuality: Self.encodingQuality) else {
             throw PhotoStoreError.couldNotEncodeImage
         }
-        try data.write(to: thumbnailURL(for: ref), options: .atomic)
+        return jpeg
+    }
+
+    static func heicData(_ image: UIImage) -> Data? {
+        guard let cgImage = image.cgImage else { return nil }
+        let data = NSMutableData()
+        guard let destination = CGImageDestinationCreateWithData(
+            data as CFMutableData, UTType.heic.identifier as CFString, 1, nil) else {
+            return nil
+        }
+        let options = [
+            kCGImageDestinationLossyCompressionQuality: encodingQuality
+        ] as CFDictionary
+        CGImageDestinationAddImage(destination, cgImage, options)
+        guard CGImageDestinationFinalize(destination) else { return nil }
+        return data as Data
+    }
+
+    /// Whether this device can produce HEIC at all — the §4 encode test gates
+    /// its container-format assertion on this (CI simulators can lack the
+    /// encoder; the decode round-trip is the unconditional floor).
+    static var isHEICEncodingAvailable: Bool {
+        let identifiers = CGImageDestinationCopyTypeIdentifiers() as NSArray
+        return identifiers.contains(UTType.heic.identifier)
     }
 
     /// Returns an orientation-normalized copy scaled so its longest edge is at
