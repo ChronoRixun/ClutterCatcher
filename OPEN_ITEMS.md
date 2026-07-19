@@ -364,3 +364,16 @@ cascade behavior were proven against real SQLite (see VERIFY report);
 `xcodegen generate` + build + test + simulator walkthrough happen on Owen's
 Mac as the first `scripts/build.sh` / `scripts/test.sh` runs. Expect the
 possibility of small first-build fixups; everything else is in place.
+
+## Future upgrades / parking lot
+
+- **FU1 — Dedicated container photo (item-photos Variant B).** A photo *of the
+  container itself* (the bin, or the open box showing its contents), stored on
+  the `containers` record as its own CKAsset — distinct from the user-designated
+  cover, which just points at an existing item's photo (see
+  planning/m6-photos-plan.md P4/P10). Would add a second copy of the item-photo
+  machinery aimed at `containers`: a `photo_asset_ref` column + `photo` CKAsset
+  field on Container, mapper handling both ways, capture UI, and the P8/P9 asset
+  side-effects on the container apply path. Deferred by Owen at the M6-photos
+  design (2026-07-19); revisit if the designated-cover approach proves
+  insufficient.
