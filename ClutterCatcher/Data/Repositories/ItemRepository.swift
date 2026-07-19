@@ -20,7 +20,8 @@ struct ItemRepository: Sendable {
         name: String,
         quantity: Int,
         notes: String?,
-        categoryID: String?
+        categoryID: String?,
+        photoAssetRef: String? = nil
     ) async throws -> Item {
         let name = name.normalizedName
         let notes = notes.normalizedNotes
@@ -32,7 +33,7 @@ struct ItemRepository: Sendable {
                 quantity: max(1, quantity),
                 notes: notes,
                 categoryId: categoryID,
-                photoAssetRef: nil,
+                photoAssetRef: photoAssetRef,
                 createdAt: mutation.now,
                 updatedAt: mutation.now,
                 createdBy: nil)

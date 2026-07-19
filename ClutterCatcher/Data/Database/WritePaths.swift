@@ -91,8 +91,26 @@ struct LocalMutation {
 
     func deleteItems(ids: [String]) throws {
         guard !ids.isEmpty else { return }
+        try clearCoverReferences(toItemIDs: ids)
         try enqueueDeletes(.item, ids)
         try Item.deleteAll(db, keys: ids)
+    }
+
+    /// P11: display already tolerates a dangling cover pointer (P10), so this
+    /// isn't for correctness — it's a tracked re-save of any container whose
+    /// cover item is being deleted, clearing `cover_item_id` so peers don't
+    /// keep a stale pointer. Mirrors the category-clear-before-delete in
+    /// `deleteCategories` (DL22): same local-mutation path, so the cleared
+    /// container syncs out normally.
+    private func clearCoverReferences(toItemIDs itemIDs: [String]) throws {
+        let affected = try Container.fetchAll(
+            db,
+            sql: "SELECT * FROM containers WHERE cover_item_id IN (\(placeholders(itemIDs)))",
+            arguments: StatementArguments(itemIDs))
+        for var container in affected {
+            container.coverItemId = nil
+            try save(&container)
+        }
     }
 
     /// Clears the reference on affected items as tracked saves *before* the

@@ -83,17 +83,22 @@ struct SearchView: View {
                 Section("Items") {
                     ForEach(results.items) { hit in
                         NavigationLink(value: Route.container(id: hit.item.containerId)) {
-                            VStack(alignment: .leading) {
-                                HStack {
-                                    Text(hit.item.name)
-                                    if hit.item.quantity > 1 {
-                                        Text("×\(hit.item.quantity)")
-                                            .foregroundStyle(.secondary)
-                                    }
+                            HStack(spacing: Tokens.spacingM) {
+                                if let ref = hit.item.photoAssetRef {
+                                    PhotoThumbnailView(ref: ref, size: 40)
                                 }
-                                Text("\(hit.containerName) · \(hit.roomName)")
-                                    .font(.subheadline)
-                                    .foregroundStyle(.secondary)
+                                VStack(alignment: .leading) {
+                                    HStack {
+                                        Text(hit.item.name)
+                                        if hit.item.quantity > 1 {
+                                            Text("×\(hit.item.quantity)")
+                                                .foregroundStyle(.secondary)
+                                        }
+                                    }
+                                    Text("\(hit.containerName) · \(hit.roomName)")
+                                        .font(.subheadline)
+                                        .foregroundStyle(.secondary)
+                                }
                             }
                         }
                     }

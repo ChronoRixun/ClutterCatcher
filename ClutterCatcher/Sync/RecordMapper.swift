@@ -28,7 +28,18 @@ enum RecordMapper {
     /// Builds the outbound record, on top of the archived system fields when
     /// the server has seen this record before (so the save carries the
     /// correct change tag), or fresh when it hasn't.
-    static func record(for row: SyncedRow, systemFields: Data?, zoneID: CKRecordZone.ID) -> CKRecord {
+    ///
+    /// `assetFileURL` (M6, P7) is the resolved local full-size file for an
+    /// item's photo, threaded in by the coordinator from
+    /// `PhotoStore.existingFileURL(for:)` — never looked up here, so this stays
+    /// a pure function. It is nil for every non-item row and for items whose
+    /// bytes aren't on this device.
+    static func record(
+        for row: SyncedRow,
+        systemFields: Data?,
+        zoneID: CKRecordZone.ID,
+        assetFileURL: URL? = nil
+    ) -> CKRecord {
         let record = baseRecord(
             type: row.recordType, id: row.id, systemFields: systemFields, zoneID: zoneID)
         switch row {
@@ -48,6 +59,7 @@ enum RecordMapper {
             record["name"] = container.name
             record["notes"] = container.notes
             record["label_slot"] = container.labelSlot
+            record["cover_item_id"] = container.coverItemId
             record["created_at"] = container.createdAt
             record["updated_at"] = container.updatedAt
         case .item(let item):
@@ -56,7 +68,20 @@ enum RecordMapper {
             record["quantity"] = item.quantity
             record["notes"] = item.notes
             record["category_id"] = item.categoryId
+            // The device-independent photo id stays an ordinary synced field
+            // (P6, already mapped), so LWW keeps working unchanged.
             record["photo_asset_ref"] = item.photoAssetRef
+            // The bytes ride separately as a CKAsset (P7). Attach only when
+            // the full-size file exists locally (the coordinator resolved the
+            // URL). Never clear an asset we simply don't have: when a photo is
+            // genuinely removed the ref goes nil and *that* — the field peers
+            // actually read — is the signal; a stale CKAsset behind a nil ref
+            // is unread and harmless (P13, §4).
+            if let assetFileURL {
+                record["photo"] = CKAsset(fileURL: assetFileURL)
+            } else if item.photoAssetRef == nil {
+                record["photo"] = nil
+            }
             record["created_at"] = item.createdAt
             record["updated_at"] = item.updatedAt
         }
@@ -126,6 +151,7 @@ enum RecordMapper {
                 name: name,
                 notes: record["notes"] as? String,
                 labelSlot: record["label_slot"] as? Int,
+                coverItemId: record["cover_item_id"] as? String,
                 createdAt: createdAt,
                 updatedAt: updatedAt,
                 createdBy: createdBy))

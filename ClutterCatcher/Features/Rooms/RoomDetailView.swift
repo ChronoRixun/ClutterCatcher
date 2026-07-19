@@ -113,8 +113,14 @@ private struct ContainerRow: View {
 
     var body: some View {
         HStack(spacing: Tokens.spacingM) {
-            Image(systemName: "shippingbox")
-                .foregroundStyle(Color.accentColor)
+            if let coverRef = entry.coverPhotoAssetRef {
+                // The user-designated cover item's photo (P10); a missing file
+                // shows the placeholder (P13). No cover → the standard icon.
+                PhotoThumbnailView(ref: coverRef, size: 40)
+            } else {
+                Image(systemName: "shippingbox")
+                    .foregroundStyle(Color.accentColor)
+            }
             VStack(alignment: .leading) {
                 Text(entry.container.name)
                 Text("^[\(entry.itemCount) item](inflect: true)")
