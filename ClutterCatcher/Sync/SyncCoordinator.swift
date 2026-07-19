@@ -885,6 +885,12 @@ extension SyncCoordinator {
                     engine?.state.remove(
                         pendingRecordZoneChanges: [pending.enginePendingChange(in: zoneID)])
                 }
+                // M6: the adopted record arrived on a conflict error, so its
+                // CKAsset bytes aren't downloaded (its fileURL is nil here).
+                // Pull so a real record fetch re-downloads any newly-adopted
+                // photo promptly, instead of showing the placeholder (P13)
+                // until the next unrelated sync. Mirrors the .orphaned branch.
+                fetchSoon()
             case .orphaned:
                 // Parent hasn't reached us yet — persisted above; pull.
                 fetchSoon()

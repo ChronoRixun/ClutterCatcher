@@ -402,6 +402,15 @@ note below; same precedent as Run 1).
 - **DL48 — Branch.** Developed on `claude/item-photos-m6-1eeil1` (the harness's
   designated branch for this run), not the `feat/item-photos` named in the
   kickoff doc. Same content; Owen can rename/re-target locally if he prefers.
+- **DL49 — Send-conflict adopts a server photo → pull for its bytes.** In
+  `resolveConflict`'s `.applied` branch (a `serverRecordChanged` where the
+  server edit wins), the new `photo_asset_ref` is adopted but the conflicting
+  record carries no downloaded CKAsset (its `fileURL` is nil), so the peer
+  would show the P13 placeholder until an unrelated sync. Added a `fetchSoon()`
+  there (mirroring the `.orphaned` branch) so a real record fetch re-downloads
+  the adopted photo promptly. Surfaced by the Run 4 self-review; self-heals via
+  P13 regardless, so low-risk. (Same review confirmed the cover SQL,
+  P8/P9/P11, mapper purity, and the editor photo lifecycle are correct.)
 
 ## Questions for Owen
 
