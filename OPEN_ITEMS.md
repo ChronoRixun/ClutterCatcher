@@ -411,6 +411,24 @@ note below; same precedent as Run 1).
   the adopted photo promptly. Surfaced by the Run 4 self-review; self-heals via
   P13 regardless, so low-risk. (Same review confirmed the cover SQL,
   P8/P9/P11, mapper purity, and the editor photo lifecycle are correct.)
+- **DL50 — M6 Production deploy went Console-manual; DL38's rule strengthened
+  (2026-07-19, merge-day).** The photo/cover schema deploy skipped the DL38
+  entitlement-flip ritual entirely: fields were added by hand in the Console's
+  Development schema (`Item.photo` Asset, `Container.cover_item_id` String) and
+  deployed — manual creation satisfies the same invariant JIT creation would.
+  First attempt still failed with the DL37 "schema not deployed" alert, which
+  exposed the real lesson: **five nullable fields had never JIT-created in
+  Production** because a nil write creates nothing — `Item.photo_asset_ref`,
+  `Item.notes`, `Item.category_id`, `Container.notes`, `Container.label_slot`
+  were all absent (no note, category assignment, or label print had ever synced
+  non-nil there). All five added and deployed in a second pass. **DL38's rule is
+  hereby strengthened: a deploy is complete only when every field the mapper can
+  emit has been written NON-NIL once in Development (or created manually) —
+  "every record-producing path ran once" is not sufficient.** The durable queue
+  behaved exactly as designed throughout: the photo'd save survived both
+  rejections and landed on foreground after the second deploy, no data loss.
+  First live cross-account CKAsset verified same day: photo set on Owen's
+  device, appeared on Shelley's.
 
 ## Questions for Owen
 
