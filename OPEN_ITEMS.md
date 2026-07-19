@@ -432,20 +432,29 @@ note below; same precedent as Run 1).
 
 ## Questions for Owen
 
-1. **HEIC vs JPEG (P12).** Shipped JPEG ~0.8 with `.jpg` filenames (DL42);
-   HEIC would cut asset/bandwidth size. Switching is trivial and
-   sync-contract-neutral (the file is a local cache; the ref is
-   device-independent). Want HEIC before the Production deploy, or is JPEG fine?
-2. **Auto-cover the first photo in a coverless container?** (§10 open
-   sub-decision.) Shipped the plan's default — **manual only** (matches P4).
-   Say the word to auto-designate the first photo and I'll flip it.
-3. **Inbound/cascade stale-file cleanup (DL44).** Currently a bounded cache
-   leak reclaimed by Reset Catalog / Re-download. Acceptable, or do you want an
-   eager "clean up unused photos" GC sweep?
-4. **"Re-download Photos" reach (P13).** It re-fetches changes (best-effort);
-   a reinstalled device re-downloads everything naturally (fresh change token).
-   A device that kept its token but lost its files won't force a re-download
-   without a token reset — flag if you hit that on-device and I'll add one.
+All four Run 4 questions resolved (Owen, 2026-07-19, post-VERIFY-start):
+
+1. ~~**HEIC vs JPEG (P12).**~~ **Resolved: switch to HEIC** (DL51 pending
+   implementation). iPhone-only fleet on iOS 26+ — HEIC native since iOS 11,
+   decode is content-based so existing JPEG cache files and already-uploaded
+   JPEG assets coexist with new HEIC ones; no migration. Keep the JPEG-encode
+   fallback path per the original P12 wording. Queued for the M6.1 follow-up
+   run alongside the GC sweep.
+2. ~~**Auto-cover the first photo in a coverless container?**~~ **Resolved:
+   deferred** — stays manual-only for now; moved to the parking lot as **FU2**,
+   to revisit after polish.
+3. ~~**Inbound/cascade stale-file cleanup (DL44).**~~ **Resolved: build the
+   "clean up unused photos" GC sweep.** Scope-corrected during the decision:
+   the leak is orphaned cache bytes only — it never affects correctness and
+   never forces a reinstall; this is a disk-tidiness feature for a years-lived
+   family app. Design constraint: the sweep must never delete refs staged in an
+   open editor session (`sessionRefs` are DB-invisible until Save), so it runs
+   on demand from Settings or at launch before any editor exists — never on a
+   background timer. Queued for the M6.1 follow-up run.
+4. ~~**"Re-download Photos" reach (P13).**~~ **Resolved: ship as-is.**
+   Best-effort re-fetch is the accepted behavior; a token-reset affordance is
+   only warranted if the kept-token/lost-files case is ever actually hit
+   on-device.
 
 ### Check-first for Owen (uncompiled — verify these before a clean build)
 
@@ -529,3 +538,7 @@ two-account CKAsset/cover/wipe VERIFY + P14 Production deploy.*
   side-effects on the container apply path. Deferred by Owen at the M6-photos
   design (2026-07-19); revisit if the designated-cover approach proves
   insufficient.
+- **FU2 — Auto-designate the first photo in a coverless container as its
+  cover** (user still overrides; m6-photos-plan §10). Deferred by Owen
+  (2026-07-19): stays manual-only through polish; revisit after the polish
+  milestone.
