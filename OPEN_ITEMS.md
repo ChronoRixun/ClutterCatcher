@@ -598,3 +598,38 @@ two-account CKAsset/cover/wipe VERIFY + P14 Production deploy.*
   cover** (user still overrides; m6-photos-plan §10). Deferred by Owen
   (2026-07-19): stays manual-only through polish; revisit after the polish
   milestone.
+
+## 2026-07-19 — Planning: M4 rewritten as "Make It Yours" (with Owen)
+
+Shelley designed a five-theme system + six app icons for ClutterCatcher in
+her own Claude Design session (inspired by the Talaria work). Owen and
+Claude (chat) restructured M4 around it; full sub-plan in
+`planning/m4-themes-plan.md` (decisions **T1–T14**), kickoff in
+`planning/m4a-kickoff-prompt.md`. Summary of the planning decisions:
+
+- **Old M4 was overtaken by events** — Shelley has been a live participant
+  since the M3 gate (DL50 verified cross-account CKAssets on her phone).
+  Its still-live residue (offline conflict script, one-week soak, Shelley's
+  sign-off, stable-device control rule) folds into the new M4's human gate.
+- **All five themes ship** (plus Classic as the untouched default), split
+  into two dispatches: M4a (ThemeKit, pickers, alternate icons, layout/copy
+  refresh, Fen empty-state figure **with idle blink** — Owen's floor for
+  dispatch one) and M4b (per-theme motion personality + Fen behaviors).
+- **Sequencing:** M4 runs after M6.1 (HEIC + GC); **M5 (Andrew + Michael)
+  stays its own gate after M4** — Arcade is the carrot for the kids
+  ("if we bore kids, they'll never use it again").
+- **D16 amended** (T14): Fen presence is a per-theme dial; Dusk returns as
+  the optional Dusk Redux theme; Classic stays default.
+- **Zero sync surface by construction** (T2): theme id is a plain local
+  `settings` write, icon state belongs to the system; a test asserts no
+  `pending_changes` from theming. No schema, no CloudKit deploy, no
+  Console step anywhere in M4.
+- **Assets:** Claude (chat) extracted the token sheets (light + dark, all
+  five themes) and rendered the six 1024pt app icons directly from the SVG
+  definitions in Shelley's docs; committed under `design/icons/` with the
+  reference canvases in `design/reference/` and Fen's shape geometry in
+  `design/fen-geometry.md` (eyes are separate shapes so the blink is one
+  animation). The `design/` folder arrives as a bundle Owen drops in at
+  the repo root before dispatching M4a.
+- DL numbering: M4 runs log DL entries starting after M6.1's allocations
+  (DL51+ remains reserved for M6.1 per the Run 4 resolutions).

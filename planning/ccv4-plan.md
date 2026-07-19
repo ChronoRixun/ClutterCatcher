@@ -27,7 +27,7 @@ ClutterCatcher is a QR-code home organization app for one household of four (Owe
 | D13 | Bundle ID `com.rixun.cluttercatcher`, team `DNL25ZFSD2`, container `iCloud.com.rixun.cluttercatcher` (reused; Development environment gets reset at M2 start). |
 | D14 | Distribution: **development-signed direct installs** via cable/Wi-Fi for M0–M6 (paid team → 1-year profiles). TestFlight optional after Xcode 27 GM (~fall). |
 | D15 | CloudKit environment strategy: Development env through M2 (schema churn allowed). **Before M4: deploy schema to Production and pin `com.apple.developer.icloud-container-environment = Production`** in dev-signed builds. All four devices always on the same environment. Real family data accumulates only in Production. |
-| D16 | Design: fresh Liquid Glass-native identity from Claude Design exploration (see §6). Dusk system is not carried over. Fen permitted as empty-state cameo only. |
+| D16 | Design: fresh Liquid Glass-native identity from Claude Design exploration (see §6). Dusk system is not carried over. Fen permitted as empty-state cameo only. *Amended 2026-07-19 (T14, `planning/m4-themes-plan.md`):* Shelley's five-theme system supersedes the single-identity assumption — Fen presence is a per-theme dial (none → full pixel sprite), and Dusk returns as an optional theme (Dusk Redux). Classic (today's look) remains the default. |
 | D17 | Repo conventions mirror Talaria: `planning/`, `OPEN_ITEMS.md` decision log, `design/` reference folder, "Questions for Owen" convention, Swift Testing + XCTest interop. |
 
 ## 3. Architecture
@@ -100,16 +100,16 @@ Reset CloudKit **Development** env schema in Console (human, one click). Private
 Deploy schema to **Production**; pin environment entitlement (D15). Zone-wide CKShare creation; sharing controller; scene-delegate acceptance path; shared-DB engine; role detection; participant roster → `created_by` names; stop-sharing/read-only fallback.
 **VERIFY (human, two Apple IDs — Owen + a spare/secondary):** invite link sends · acceptance opens app and hydrates full catalog · bidirectional edits within ~seconds · `created_by` shows correct names both sides.
 
-### M4 — Shelley *(human gate)*
-Install on Shelley's iPhone (iOS 26 stable — this is also the beta-OS control device check). Real invite, real acceptance, one week of genuine parallel use. Conflict script: both edit the same item offline → LWW confirmed, nothing lost silently.
-**VERIFY:** Shelley signs off. Any CKShare weirdness seen on Owen's iOS 27 db3 phone is cross-checked against Shelley's stable device before debugging code (beta-seed CKShare regressions are a known hazard).
+### M4 — Make It Yours: themes + personalization *(rewritten 2026-07-19 · runs after M6.1)*
+Supersedes the original "Shelley" gate, whose install/invite half was overtaken by events (Shelley has been a live participant since the M3 gate; cross-account CKAsset verified on her device, DL50). Full sub-plan: **`planning/m4-themes-plan.md`** (decisions T1–T14). Shelley's five-theme system (Claude Design; `design/reference/`) ships as two dispatches: **M4a** ThemeKit + six themes light/dark + Make It Yours (theme picker, six alternate app icons) + lead-screen layout/copy refresh + Fen empty-state figure with idle blink; **M4b** per-theme motion personality + Fen behaviors. Theme/icon are per-device local settings — zero sync surface.
+**VERIFY (closes M4, folds in old-M4 residue):** the offline conflict script (both edit the same item → LWW, receipts in both Sync Activity logs) · one-week parallel-use soak on themed builds · beta weirdness cross-checked on Shelley's stable device first · Shelley signs off.
 
 ### M5 — Andrew + Michael *(human gate)*
 Two more invites; 4-participant roster; per-device install ritual documented in `docs/family-setup.md`; label printing session — first real physical labels go up in the house.
 **VERIFY:** all four devices converge on the same catalog; each member's edits attributed correctly.
 
-### M6 — Hardening + polish *(mixed)*
-Sync status UI; error surfaces; empty states (Fen cameo); JSON export/backup; item photos (CKAsset) if desired; App Intents + Core Spotlight indexing of items (**iOS 26-capable** — "where are the Christmas lights" from system search); iPad support (`TARGETED_DEVICE_FAMILY = 1,2` + layout pass; target device: Shelley's iPad, iPadOS 27 beta — runs an iOS 26-target app fine); optional TestFlight migration post-GM (data already in Production per D15, so it's seamless).
+### M6 — Hardening *(mixed)*
+Sync status UI; error surfaces; JSON export/backup; ~~item photos (CKAsset)~~ *(shipped early: Run 4 + M6.1; empty-state/Fen polish moved to M4)*; App Intents + Core Spotlight indexing of items (**iOS 26-capable** — "where are the Christmas lights" from system search); iPad support (`TARGETED_DEVICE_FAMILY = 1,2` + layout pass; target device: Shelley's iPad, iPadOS 27 beta — runs an iOS 26-target app fine); optional TestFlight migration post-GM (data already in Production per D15, so it's seamless).
 **VERIFY:** export/reimport round-trip; Spotlight finds a known item; family still syncing after 2 weeks.
 
 ### M7 — iOS 27 harvest *(parking lot, after family updates in fall)*
