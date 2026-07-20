@@ -850,6 +850,17 @@ human gate (soak continues; Shelley's sign-off still closes M4).
   DL74's "sequence automation on state, not pixels" caveat but inverted:
   here pixels were the only honest signal available.
 
+### 2026-07-20 — M4c gate closed
+
+- **Owen's on-device pass passed** — Family, Labels, Categories, and Sync
+  Activity themed with no white flashes or readability issues; the label
+  preview reads as a white sheet on the themed desk; Classic unchanged.
+  `feat/themes-m4c` merged to `main` (`--no-ff`, 5322e00). Every screen
+  except Onboarding is now themed, per the DL58 resolution. Board: **M7b
+  or M6.2 next** (Owen's pick); M4's human gate (soak + Shelley's
+  sign-off) continues unaffected. Light-mode severity-color contrast note
+  (DL76) stands as feed for M6's a11y audit.
+
 ## 2026-07-19 — Planning: M7 "Polish & The House That Knows" (with Owen)
 
 Born from the post-M4b polish review. New milestone, spec'd and
