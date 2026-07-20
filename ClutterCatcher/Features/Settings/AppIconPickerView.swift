@@ -51,6 +51,7 @@ enum AppIcons {
 /// ring + check marks the active icon. Any icon goes with any theme.
 struct AppIconPickerView: View {
     @Environment(ThemeStore.self) private var themeStore
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     /// Bumped after every applied change so `currentIconName` re-reads.
     /// The icon is system state — reading it live at render beats caching
@@ -58,6 +59,8 @@ struct AppIconPickerView: View {
     /// timing.
     @State private var iconRefresh = 0
     @State private var iconError: String?
+    /// The tile currently mid-bounce (§6 cross-cutting M4b); nil otherwise.
+    @State private var bouncingIconID: String?
 
     private var currentIconName: String? {
         _ = iconRefresh
@@ -124,6 +127,13 @@ struct AppIconPickerView: View {
                                 .offset(x: 6, y: -6)
                         }
                     }
+                    // §6 cross-cutting: selection bounce, on the theme's
+                    // settle spring. Suppressed under Reduce Motion (the
+                    // ring + check already carry the state change).
+                    .scaleEffect(bouncingIconID == entry.id ? 1.12 : 1)
+                    .animation(
+                        themeStore.theme.motion.animation(.settle, reduceMotion: reduceMotion),
+                        value: bouncingIconID)
                 VStack(spacing: 0) {
                     Text(entry.displayName)
                         .font(.footnote.weight(.medium))
@@ -144,6 +154,13 @@ struct AppIconPickerView: View {
             do {
                 try await AppIcons.apply(iconName: entry.iconName)
                 iconRefresh += 1
+                // Bounce only after the applied state has settled (DL59's
+                // presentation-timing lesson — never animate in the same
+                // transaction as the state change).
+                guard !reduceMotion else { return }
+                bouncingIconID = entry.id
+                try? await Task.sleep(for: .milliseconds(140))
+                bouncingIconID = nil
             } catch {
                 Log.app.error("Alternate icon change failed: \(String(describing: error))")
                 iconError = "Something went wrong changing the icon — try again."

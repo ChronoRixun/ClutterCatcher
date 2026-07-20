@@ -63,6 +63,7 @@ struct RoomEditorView: View {
                 } else {
                     try await repository.createRoom(name: name, icon: icon)
                 }
+                Haptics.saveSoftImpact() // T10 — every theme
                 dismiss()
             } catch {
                 Log.data.error("Room save failed: \(String(describing: error))")

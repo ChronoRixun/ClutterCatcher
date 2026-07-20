@@ -21,7 +21,10 @@ struct SearchView: View {
                     ContentUnavailableView {
                         if let fenColors = themeStore.theme.fenColors {
                             VStack(spacing: Tokens.spacingM) {
-                                FenFigure(colors: fenColors)
+                                FenFigure(
+                                    colors: fenColors,
+                                    style: themeStore.theme.fenStyle,
+                                    glow: themeStore.theme.fenGlow)
                                     .frame(height: 88)
                                 Text("Find Anything")
                             }

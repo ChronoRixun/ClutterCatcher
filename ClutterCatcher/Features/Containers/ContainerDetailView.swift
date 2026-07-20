@@ -11,6 +11,7 @@ struct ContainerDetailView: View {
     @Environment(\.syncCoordinator) private var coordinator
     @Environment(\.dismiss) private var dismiss
     @Environment(ThemeStore.self) private var themeStore
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     @State private var detail: ContainerDetail?
     @State private var detailLoaded = false
@@ -151,6 +152,12 @@ struct ContainerDetailView: View {
                             ItemRow(entry: entry)
                         }
                         .buttonStyle(.plain)
+                        // §6 save reward: Pop!'s saved row drops in with a
+                        // squash-settle; everyone else keeps the standard
+                        // row insertion under their own settle spring.
+                        .transition(
+                            themeStore.theme.motion.saveReward(reduceMotion: reduceMotion)
+                                == .squashSettle ? .dropInSquash : .opacity)
                     }
                     .onDelete { offsets in
                         let deleted = offsets.map { detail.items[$0].item }
@@ -180,6 +187,14 @@ struct ContainerDetailView: View {
             // P13: pull-to-refresh nudges a fetch so missing photos download.
             await coordinator?.requestPhotoRefetch()
         }
+        // Item-list changes settle with the theme's spring; Classic (settle
+        // nil) keeps its pre-M4b list behavior — nil disables animation.
+        .animation(itemListAnimation, value: detail.items)
+    }
+
+    private var itemListAnimation: Animation? {
+        guard themeStore.theme.motion.settle != nil else { return nil }
+        return themeStore.theme.motion.animation(.settle, reduceMotion: reduceMotion)
     }
 }
 

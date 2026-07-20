@@ -362,6 +362,7 @@ struct ItemEditorView: View {
                 }
                 didCommit = true
                 cleanUpAfterCommit(keeping: photoAssetRef)
+                Haptics.saveSoftImpact() // T10 — every theme
                 dismiss()
             } catch {
                 Log.data.error("Item save failed: \(String(describing: error))")

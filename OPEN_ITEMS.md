@@ -571,6 +571,97 @@ kickoff.
   `feat/motion-m4b` off `main`. The DL58 coverage question below gates part
   of its scope.
 
+### 2026-07-19 — Run 7 (M4b, motion & Fen personality — local Mac, green build)
+
+Slice per `planning/m4-themes-plan.md` §6/§7 (M4b). Zero sync surface held by
+construction and by measurement: no schema, no migration, `Sync/` untouched,
+and a live-sim session (theme flips, six scan-card presentations, Reduce
+Motion toggles, eight relaunches) left `pending_changes`/`sync_events` counts
+byte-identical (23/0 → 23/0) alongside the M4a zero-`pending_changes` test.
+Built and tested under stable Xcode 26.6 — `scripts/test.sh` green, 185
+tests / 22 suites (one new: MotionTests, 7 tests). The DL58 coverage
+question was still open at run time, so themed-surface coverage ships
+unchanged (touch-list only) and the question stands.
+
+- **DL60 — Motion tokens are values hung off Theme; Reduce Motion is a
+  parameter, not an afterthought.** `Design/Motion.swift`: `SpringSpec`
+  (response/damping as plain data) and `MotionPersonality` (settle +
+  card-entrance specs, scan/save reward styles) mirror how palettes work.
+  A nil spec means system default — motion's structural no-op, matching
+  Classic's theming no-op (Dusk's card entrance is nil too; its
+  "standard transition" reads as "unchanged"). Resolution takes
+  `reduceMotion:` explicitly: every animation collapses to one plain fade
+  and both reward styles collapse to `.standard`, so a single switch per
+  call site covers both variants. `@Environment(\.accessibilityReduceMotion)`
+  is the production source, the parameter is the test seam (§7's
+  flag-flips-the-implementation test).
+- **DL61 — Scan-card personality per §6; DL57 semantics untouched.**
+  ScanSuccessCard owns the reward moment: Pop! bouncy entrance (the literal
+  `response .35, damping .6`) + one-shot confetti + Fen peek with the wink
+  as the settling flourish; Arcade glow-breathing (twice, then settles low)
+  + `numericText` score-tick count-up; Fresh trim-drawn leaf beside the
+  container line; Cozy's soft settle is the entrance spring itself.
+  Judgment calls: under Reduce Motion Fen still peeks — presence is theme
+  identity, not motion — but arrives settled with the fade and never winks;
+  leaf/count-up/glow simply don't run (style collapse); Camera-app deep
+  links still bypass the card (DL57), so the scan-found haptic lives in the
+  card's per-presentation task.
+- **DL62 — Confetti is KeyframeAnimator-driven shape views, not
+  Canvas/TimelineView; burst state lives in ScanView.** The kickoff's
+  Canvas+TimelineView burst silently draws nothing inside a List row on the
+  pinned iOS 26.5 sim runtime — verified stepwise: the view inserts and
+  `onAppear` logs, the canvas never renders (as a ZStack sibling it also
+  collapses to zero height; an `.overlay` fixed sizing and it *still*
+  drew nothing). Plain `Circle`s animated per-dot by `keyframeAnimator`
+  (t → parabolic flight in the closure) are the same machinery the rest of
+  the moment uses and render everywhere. Two survival rules learned on the
+  way: (a) the one-shot guard AND the in-flight burst id must both live in
+  ScanView — the card row gets torn down and recreated around the
+  keyboard-collapse/section-swap moment, and card-local state died having
+  consumed the guard, eating the burst; (b) the toss waits ~300 ms for the
+  entrance to land — it reads better and stops the burst's wall-clock life
+  racing a lagging first frame (seen clearly under recording load).
+- **DL63 — Save reward + haptics (T10).** Soft-impact haptic on the save
+  path of all four editors; success-notification haptic on scan-found —
+  every theme, Classic included, and deliberately not gated on Reduce
+  Motion (haptics aren't motion). Pop!'s drop-in squash-settle is an
+  insertion transition on the container item rows plus a theme-settle
+  animation on item-list changes; Classic's list animation is nil
+  (pre-M4b behavior untouched). Honest caveat: the squash-settle was not
+  visually verified in-sim — the capture sandbox deliberately took zero
+  catalog writes — so it rides Owen's device gate (VERIFY human #1), with
+  DL62's List-transition lesson as the known risk if it doesn't read.
+- **DL64 — Fen behaviors (§5 M4b).** Ear-perk (~4°, ears pivot at their
+  base midpoints, tips outward) triggers on the empty-state primary
+  buttons of Rooms home *and* RoomDetail — the same "Add Your First Room"
+  pattern — for Cozy and Pop! only, per the kickoff's theme list (the
+  Arcade sprite doesn't perk). The perk plays under the presenting sheet;
+  accepted rather than delaying navigation per-theme. The wink swaps the
+  right eye for the geometry doc's stroked arc (pre-stroked path so width
+  scales); placement judgment: post-reward flourish on the Pop! peek only —
+  no other placements this run. The pixel variant ships exactly per
+  fen-geometry.md (rect eyes/nose, no highlights, blink squashes the
+  rects), with the accent glow as a compositing-group shadow scaled by a
+  GeometryReader; Arcade's Scan presence is the sprite above the
+  viewfinder hint and in the manual-path notice.
+- **DL65 — Cross-cutting polish.** Rooms first-load stagger: once per
+  launch via a process-lived flag, decided inside the observation loop
+  before the first non-empty render (no flash on later visits), 30 ms/row
+  capped at row 15, theme settle spring; Reduce Motion = one plain fade,
+  no offset, no stagger. Icon-picker tile bounce: fires only after
+  `AppIcons.apply` returns (DL59's timing lesson), rides the theme's
+  settle spring, suppressed under Reduce Motion.
+- **DL66 — DEBUG capture harness + sim capture playbook.** ScanView gained
+  an env-gated, DEBUG-only auto-scan hook (`CC_AUTOSCAN_CODE` /
+  `CC_AUTOSCAN_DELAY` via `SIMCTL_CHILD_*`) after DL27's typing flakiness
+  turned manual-entry capture runs into a lottery (pasteboard and
+  host-keystroke routes all proved intermittent). Two sim facts worth
+  keeping: ScanView's `.task` runs at *launch* (iOS 26 TabView
+  materializes tabs eagerly), so the delay counts from launch, not tab
+  visit; and `simctl recordVideo` drops animation samples under load —
+  screenshot bursts (and AVAssetImageGenerator extraction when video does
+  cooperate) are the reliable evidence path.
+
 ## Questions for Owen
 
 ### Run 6 (M4a)

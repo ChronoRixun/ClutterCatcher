@@ -87,6 +87,7 @@ struct ContainerEditorView: View {
                     try await containerRepository.createContainer(
                         roomID: roomID, name: name, notes: notes)
                 }
+                Haptics.saveSoftImpact() // T10 — every theme
                 dismiss()
             } catch {
                 Log.data.error("Container save failed: \(String(describing: error))")
