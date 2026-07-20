@@ -662,6 +662,25 @@ unchanged (touch-list only) and the question stands.
   screenshot bursts (and AVAssetImageGenerator extraction when video does
   cooperate) are the reliable evidence path.
 
+### 2026-07-19 — M4b device pass; merged. M4 gate remains OPEN
+
+- **Owen's on-device pass passed** — branch build installed on both phones;
+  motion looks good, including the two sim-unverifiable items DL63 flagged
+  (Pop!'s save squash-settle, Arcade's count-up). `feat/motion-m4b` merged
+  to `main` (`--no-ff`, 95f1c0a) so the remaining gate runs on the real
+  build. **M4 is NOT closed yet** — still owed (plan §7, VERIFY human):
+  the offline conflict script with receipts in both phones' Sync Activity
+  (DL28), the one-week parallel-use soak on themed builds (DL19
+  stable-device rule), and **Shelley's sign-off**. Sign-off closes M4 and
+  opens M5 (Andrew + Michael, Arcade in hand).
+- Note (Owen asked, 2026-07-19): Reduce Motion deliberately has **no
+  in-app toggle** — it's the OS accessibility setting, honored per Apple
+  convention; the theme picker is the app's motion dial. If a themed-look/
+  calm-motion combination is ever actually wanted (likely candidate: the
+  kids on Arcade at M5), an "animations" toggle in Make It Yours is
+  trivial — every animation already resolves through the `reduceMotion:`
+  seam, so an app flag just ORs in. Not built on speculation.
+
 ## Questions for Owen
 
 ### Run 6 (M4a)
