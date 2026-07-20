@@ -861,6 +861,134 @@ human gate (soak continues; Shelley's sign-off still closes M4).
   sign-off) continues unaffected. Light-mode severity-color contrast note
   (DL76) stands as feed for M6's a11y audit.
 
+### 2026-07-20 — Run 10 (M6.2, iPad support — local Mac, green build)
+
+Slice per `planning/m6.2-ipad-kickoff-prompt.md`, on `feat/ipad-m6-2` off
+`main` at 998fedd. Scope held: `Sync/` touched **only** in the onboarding
+bootstrap path the kickoff names (`ShareAcceptance.swift` + new
+`SharedZoneBootstrap.swift`) — engine, mapper, schema, migrations untouched;
+no `project.yml` change beyond the device-family/orientation keys; the DL20
+write paths untouched. Built and tested under stable Xcode 26.6 —
+`scripts/test.sh` green on **both device families**: 214 tests / 25 suites
+on iPhone 17 (iOS 26.5) *and* on **iPad Pro 11-inch (M5)** (iOS 26.5 — the
+logged iPad model, pinned to DL14's runtime). No script fork: the DL14
+`SIM_NAME`/`SIM_OS` overrides already select the destination; both scripts
+now document the iPad usage in their headers. Two new suites:
+SharedZoneBootstrapTests (4) and AdaptiveLayoutTests (3).
+
+- **DL78 — iPad enablement is configuration + size classes, not a rewrite.**
+  `TARGETED_DEVICE_FAMILY "1,2"`; all four iPad orientations via the
+  `~ipad` Info.plist key (iPhone stays portrait-only, so a Max-size phone
+  can never hit the regular-width paths); `UIRequiresFullScreen`
+  deliberately absent — Split View / Slide Over / windowed resizing is in
+  scope and verified: resizing the app to an arbitrary iPadOS 26 window
+  relays out live to the compact (iPhone) layout with the themed background
+  filling every size (`artifacts/m6.2/27-window-resized-arcade.png`). The
+  TabView adopts `.tabViewStyle(.sidebarAdaptable)` — iPad gets the native
+  top-bar/sidebar treatment (both modes verified in-sim), iPhone keeps its
+  bottom tab bar.
+- **DL79 — `Design/AdaptiveLayout.swift` is the one new layout seam.** Pure,
+  tested decisions: `contentMaxWidth(isRegularWidth:)` (672 pt readable cap;
+  nil = compact no-op, the DL54 discipline applied to layout) and
+  `roomGridColumnCount(forWidth:)` (2–4 columns targeting ~300 pt tiles).
+  The `readableContentWidth()` modifier centers grouped List/Form content
+  and fills the released side space with the screen's own background —
+  `theme.bg` themed, `systemGroupedBackground` for Classic — so themed
+  surfaces stay edge to edge at every width. Applied to Settings (+ both
+  pickers), Family, Search, Container/Room detail, Scan's manual form, and
+  Sync Activity. Judgment calls: Rooms home trades the list for a card grid
+  of the T11 accent-cycle tiles **only in regular width** (compact keeps
+  the exact iPhone list — a 50/50 split pane is compact and gets it);
+  EditButton is compact-only, grid deletes ride each card's context menu
+  into the same confirmation, and reorder stays a compact affordance.
+  Editors present as true form sheets (`.presentationSizing(.form)`); the
+  label-PDF preview gets `.presentationSizing(.page)` — the white page on
+  the themed desk (DL75) finally has room. Onboarding caps at 480 pt; scan
+  result cards cap at 520 pt (an 88 pt Fen stays an 88 pt Fen everywhere —
+  the existing fixed frames already satisfied the cap rule).
+- **DL80 — Popover audit (every dialog/share/print path, with outcomes).**
+  (a) `UIPrintInteractionController.present(animated:)` was the one real
+  iPad bug — iPhone-shaped API with no popover anchor. Fixed: an invisible
+  `PrintAnchorView` rides behind the preview's Print button and
+  `present(from:in:)` anchors there (identical behavior on iPhone);
+  verified on iPad — the full print panel presents correctly. (b) Dialogs
+  with a stable triggering control were re-anchored onto it and verified
+  presenting as row-anchored popovers: Settings reset, Family leave,
+  onboarding's owner-switch. (c) Screen-level dialogs with no stable anchor
+  (RootView join, Rooms-home swipe/context delete, container-detail
+  menu delete, item editor's two, theme picker's icon offer) present as
+  sane centered popovers/alerts — verified for the container delete and
+  the icon offer (which also re-proved DL59's present-after-select timing
+  on the new idiom); the rest share the same presentation machinery.
+  (d) `ShareLink` self-anchors at its toolbar button (verified);
+  `UICloudSharingController` and the photo pickers present as sheets, no
+  anchor needed. One cosmetic finding: the label sheet's bottom-bar
+  "Generate Label Sheet" button renders icon-only on iPad (iPhone keeps
+  the labeled button) — functional, noted for the M6 a11y audit.
+- **DL81 — Second-device bootstrap: discovery joins what acceptance
+  already granted.** CKShare acceptance is per-Apple-ID, so a fresh install
+  on a participant account has the `Household` zone sitting in its shared
+  database and no callback coming (the DL29 gap). New
+  `SharedZoneBootstrap.outcome` (pure, tested: zone + virgin/pristine →
+  adopt silently; zone + data-bearing → the DL33 replace dialog; no zone →
+  the invite-waiting flow stands) and `SharedZoneDiscovery` (read-only
+  `sharedCloudDatabase.allRecordZones()` + best-effort share fetch for the
+  roster — inbound sync refreshes it anyway, DL32). `ShareAcceptanceModel`
+  generalized to a `PendingJoin` of invite-vs-discovered — same phases,
+  same RootView dialog/overlay/alert, same one-transaction `wipeAndAdopt`
+  (untouched), no accept step on the discovered path. Discovery runs from
+  the waiting screen on appear and on every foreground (DL26 discipline),
+  with a pre-configure buffer mirroring the invite buffer — a cold launch
+  into the waiting screen runs the child view's task before the root
+  configures the model, and without the buffer it would silently dead-end.
+  An explicit invite always outranks a discovered zone. **Owen's on-device
+  §3 VERIFY effectively passed early**: Shelley's iPad (fresh install,
+  committed build) → "Join a Household" → hydrated into the real household
+  with no new invite.
+- **DL82 — What run 1 of Owen's device pass actually was (incident note).**
+  The first install came from this working tree *mid-edit* (the branch had
+  no commit yet), a state where the waiting screen either lacked discovery
+  or carried the cold-launch dead-end above; "Join" then waits forever and
+  the escape hatch ("Set Up This Home Instead") seeds an owner household —
+  after which DL29-by-design offers no path back to joining except
+  reinstall. Consistency check that the real household was never touched:
+  leaving it would have been CloudKit remove-self, after which the
+  reinstall could not have discovered the zone — but it did, and joined.
+  Mitigations shipped: the waiting screen now says second devices connect
+  automatically with no invite; the branch is committed so device builds
+  are defined states. The harder guard is a Question below.
+- **DL83 — iPad-sim automation field notes (extends DL74/DL77).** On the
+  fresh CC-M62-iPad sandbox (iPad Pro 11-inch M5, 26.5): (a) idb text
+  input **works** — the DL74(b) all-channels-dead typing failure is an
+  iPhone-sandbox affliction, not universal; tap-typing was never needed.
+  (b) idb HID taps address the **portrait-native** coordinate space
+  regardless of UI orientation — landscape taps silently land elsewhere
+  (masquerading as DL77's swallowed-taps trap). Rule: interact in
+  portrait; rotate (Simulator ⌘←/⌘→ via System Events) only to capture.
+  (c) `simctl ui <udid> appearance dark` flips appearance live, no
+  relaunch. (d) The iPadOS 26 window-resize handle drags fine with the
+  DL77-approved `idb ui swipe` CLI — the fastest way to exercise
+  arbitrary-width relayout.
+- **DL84 — Evidence accounting (what the M6.2 captures actually measured).**
+  (a) *iPhone regression ("zero deltas on compact"):* the M4a screen set
+  (Rooms, room detail, container detail, item editor, Scan, Settings) was
+  captured twice on the CC-M7a-Sandbox iPhone 17 sim — same DB, same
+  navigation, status bar pinned 9:41 — once on a fresh `main` build (998fedd,
+  built in a throwaway worktree) and once on this branch, compared as
+  uncompressed BMP bytes. Four screens are **byte-identical** (0 differing
+  pixels of 3.16 M); container detail differs by literally one pixel
+  (channel delta 1); the item editor differs only in a full-width strip at
+  the sheet's bottom edge — 0.30% of pixels, 83% at channel delta 1, max
+  14 — the DL76 Liquid Glass material-sampling noise. Zero content deltas.
+  (b) *iPad set* (`artifacts/m6.2/`): Rooms grid / container detail /
+  editors / Scan manual + success card / Search / Settings + both pickers
+  across Classic light, Pop! light (+ Pop! dark via the system setting),
+  and Arcade dark; portrait and landscape; sidebar and top-bar tab modes;
+  the DL80 popover audit shots; and the windowed arbitrary-width resize
+  relayout. The DL7 label-slot write from the audit's PDF generate is the
+  sandbox's own catalog (never the live iPhone 17 sim — DL27's rule held;
+  all interactive work ran on the fresh CC-M62-iPad sandbox).
+
 ## 2026-07-19 — Planning: M7 "Polish & The House That Knows" (with Owen)
 
 Born from the post-M4b polish review. New milestone, spec'd and
@@ -920,6 +1048,22 @@ found real gaps; Owen ruled on placement:
   needed. Bootstrap code only; zero schema, zero contract change.
 
 ## Questions for Owen
+
+### Run 10 (M6.2)
+
+1. **Should "Set Up This Home (Instead)" check for a discoverable household
+   first?** The DL82 incident shows the footgun: on a second device whose
+   iCloud session is still warming up, the waiting screen's escape hatch
+   can seed a junk owner catalog, and DL29-by-design offers no way back
+   short of a reinstall. A guard would run one discovery before
+   `becomeOwner` and — when a `Household` zone exists in the account's
+   shared database — either warn harder or re-route into the join. Cost: a
+   network round-trip (with a timeout) on a path that must also work
+   offline for the genuine first owner. Interim (most reversible): shipped
+   copy on the waiting screen says second devices connect automatically;
+   discovery re-runs on every foreground, so the stranding window is the
+   discovery latency itself. Owen's call whether the guard is worth the
+   offline-path complexity.
 
 ### Run 6 (M4a)
 

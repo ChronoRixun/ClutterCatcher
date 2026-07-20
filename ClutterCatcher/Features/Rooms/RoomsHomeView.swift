@@ -15,6 +15,7 @@ struct RoomsHomeView: View {
     @Environment(Router.self) private var router
     @Environment(ThemeStore.self) private var themeStore
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
 
     @State private var entries: [RoomListEntry] = []
     @State private var entriesLoaded = false
@@ -66,6 +67,11 @@ struct RoomsHomeView: View {
                         }
                         .buttonStyle(.borderedProminent)
                     }
+                } else if horizontalSizeClass == .regular {
+                    // M6.2: regular width trades the list for a grid of the
+                    // T11 accent-cycle tiles; compact keeps the exact iPhone
+                    // list (a 50/50 Split View pane is compact and gets it).
+                    roomGrid
                 } else {
                     roomList
                 }
@@ -74,8 +80,12 @@ struct RoomsHomeView: View {
             .themedScreen()
             .catalogDestinations()
             .toolbar {
-                ToolbarItem(placement: .topBarLeading) {
-                    EditButton()
+                // Edit (reorder/multi-delete) is a list affordance; the grid
+                // deletes via each card's context menu instead.
+                if horizontalSizeClass != .regular {
+                    ToolbarItem(placement: .topBarLeading) {
+                        EditButton()
+                    }
                 }
                 ToolbarItemGroup(placement: .topBarTrailing) {
                     Menu {
@@ -175,26 +185,30 @@ struct RoomsHomeView: View {
         }
     }
 
+    /// §4 + U4: the line under the large title grows up with the catalog —
+    /// aspiration until the first container exists, live counts after
+    /// (RoomsSubtitle owns the threshold). Shared by the list and the grid.
+    private var subtitleText: some View {
+        Group {
+            switch RoomsSubtitle.subtitle(
+                roomCount: entries.count, containerCount: totalContainerCount) {
+            case .aspirational:
+                Text("Let's give everything a home — start by adding bins to a room.")
+            case .counts(let rooms, let containers):
+                Text("^[\(rooms) room](inflect: true) · ^[\(containers) container](inflect: true) · everything has a home")
+            }
+        }
+        .font(.subheadline)
+        .foregroundStyle(.secondary)
+    }
+
     private var roomList: some View {
         List {
-            // §4 + U4: the line under the large title grows up with the
-            // catalog — aspiration until the first container exists, live
-            // counts after (RoomsSubtitle owns the threshold).
             Section {
-                Group {
-                    switch RoomsSubtitle.subtitle(
-                        roomCount: entries.count, containerCount: totalContainerCount) {
-                    case .aspirational:
-                        Text("Let's give everything a home — start by adding bins to a room.")
-                    case .counts(let rooms, let containers):
-                        Text("^[\(rooms) room](inflect: true) · ^[\(containers) container](inflect: true) · everything has a home")
-                    }
-                }
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
-                .listRowBackground(Color.clear)
-                .listRowInsets(EdgeInsets(top: 0, leading: Tokens.spacingS, bottom: 0, trailing: 0))
-                .listRowSeparator(.hidden)
+                subtitleText
+                    .listRowBackground(Color.clear)
+                    .listRowInsets(EdgeInsets(top: 0, leading: Tokens.spacingS, bottom: 0, trailing: 0))
+                    .listRowSeparator(.hidden)
             }
             Section {
                 ForEach(Array(entries.enumerated()), id: \.element.id) { index, entry in
@@ -233,8 +247,90 @@ struct RoomsHomeView: View {
         }
     }
 
+    /// M6.2: the regular-width Rooms home — the T11 accent-cycle tiles as an
+    /// adaptive card grid. Column count is pure math (AdaptiveLayout, tested);
+    /// delete rides each card's context menu into the same confirmation the
+    /// list uses. Reorder stays a list (compact-width) affordance.
+    private var roomGrid: some View {
+        GeometryReader { proxy in
+            let columnCount = AdaptiveLayout.roomGridColumnCount(
+                forWidth: proxy.size.width - Tokens.spacingL * 2)
+            ScrollView {
+                VStack(alignment: .leading, spacing: Tokens.spacingL) {
+                    subtitleText
+                        .padding(.horizontal, Tokens.spacingS)
+                    LazyVGrid(
+                        columns: Array(
+                            repeating: GridItem(.flexible(), spacing: Tokens.spacingM),
+                            count: columnCount),
+                        spacing: Tokens.spacingM
+                    ) {
+                        ForEach(entries) { entry in
+                            NavigationLink(value: Route.room(id: entry.room.id)) {
+                                RoomCard(entry: entry)
+                            }
+                            .buttonStyle(.plain)
+                            .contextMenu {
+                                Button("Delete Room…", systemImage: "trash", role: .destructive) {
+                                    pendingDeletion = [entry]
+                                }
+                            }
+                        }
+                    }
+                }
+                .padding(Tokens.spacingL)
+            }
+        }
+    }
+
     private var totalContainerCount: Int {
         entries.reduce(0) { $0 + $1.containerCount }
+    }
+}
+
+/// One room as a grid card (M6.2, regular width): the list row's icon tile
+/// and counts on a themed surface. Classic uses the grouped-row color the
+/// list would have painted — same information, roomier clothes.
+private struct RoomCard: View {
+    let entry: RoomListEntry
+
+    @Environment(ThemeStore.self) private var themeStore
+
+    var body: some View {
+        let theme = themeStore.theme
+        let tileColor = theme.cycleAccent(forSortOrder: entry.room.sortOrder)
+        HStack(spacing: Tokens.spacingM) {
+            Image(systemName: entry.room.displayIcon)
+                .font(.title2)
+                .foregroundStyle(tileColor)
+                .frame(width: 44, height: 44)
+                .background(tileColor.opacity(0.15), in: RoundedRectangle(cornerRadius: Tokens.cornerRadius - 4))
+            VStack(alignment: .leading, spacing: 2) {
+                Text(entry.room.name)
+                    .font(.headline)
+                    .lineLimit(1)
+                if entry.containerCount == 0 {
+                    Text("No bins yet")
+                        .font(.subheadline)
+                        .foregroundStyle(.tertiary)
+                } else {
+                    Text("^[\(entry.containerCount) container](inflect: true)")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                }
+            }
+            Spacer(minLength: 0)
+            Image(systemName: "chevron.right")
+                .font(.footnote.weight(.semibold))
+                .foregroundStyle(.tertiary)
+        }
+        .padding(Tokens.spacingM)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            theme.isClassic ? Color(.secondarySystemGroupedBackground) : theme.surface,
+            in: RoundedRectangle(cornerRadius: Tokens.cornerRadius))
+        .contentShape(RoundedRectangle(cornerRadius: Tokens.cornerRadius))
+        .accessibilityElement(children: .combine)
     }
 }
 

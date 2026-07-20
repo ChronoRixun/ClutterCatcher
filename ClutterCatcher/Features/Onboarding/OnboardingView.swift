@@ -64,6 +64,8 @@ struct OnboardingView: View {
             }
             .disabled(isWorking)
         }
+        // M6.2: a welcome card, not a 12-inch spread — cap on iPad widths.
+        .frame(maxWidth: 480)
         .padding(Tokens.spacingL)
         .alert(
             "Something Went Wrong",
@@ -79,9 +81,13 @@ struct OnboardingView: View {
 }
 
 /// The waiting room after "Join a Household" (M3-B): no catalog, no seed —
-/// just instructions until the share invite lands.
+/// just instructions until the share invite lands. Since M6.2 it also
+/// checks whether this Apple ID already carries the household's shared zone
+/// (a participant's second device needs no invite) — on appear and on every
+/// return to the foreground, mirroring the DL26 activation-fetch discipline.
 struct JoinWaitingView: View {
     @Environment(AppModel.self) private var appModel
+    @Environment(\.scenePhase) private var scenePhase
     @State private var isConfirmingOwnerSwitch = false
 
     var body: some View {
@@ -99,23 +105,42 @@ struct JoinWaitingView: View {
                 InstructionRow(number: 3, text: "The household's catalog appears here automatically.")
             }
             .padding(.horizontal, Tokens.spacingS)
+            // M6.2 §3: second devices need no invite — discovery runs on
+            // appear and on every foreground. Saying so keeps a briefly
+            // slow iCloud session from steering people into "Set Up This
+            // Home Instead" (seen in the wild on the first device pass).
+            Text("Already in the household on another device? No invite needed — the catalog connects on its own once iCloud catches up.")
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
             Spacer()
             Button("Set Up This Home Instead") {
                 isConfirmingOwnerSwitch = true
             }
             .font(.subheadline)
-        }
-        .padding(Tokens.spacingL)
-        .confirmationDialog(
-            "Start your own catalog?",
-            isPresented: $isConfirmingOwnerSwitch,
-            titleVisibility: .visible
-        ) {
-            Button("Set Up This Home") {
-                Task { await appModel.setUpThisHome() }
+            // Anchored to its button so iPad presents a sane popover
+            // (M6.2 popover audit).
+            .confirmationDialog(
+                "Start your own catalog?",
+                isPresented: $isConfirmingOwnerSwitch,
+                titleVisibility: .visible
+            ) {
+                Button("Set Up This Home") {
+                    Task { await appModel.setUpThisHome() }
+                }
+            } message: {
+                Text("Only one person per household should do this — everyone else joins by invite.")
             }
-        } message: {
-            Text("Only one person per household should do this — everyone else joins by invite.")
+        }
+        .frame(maxWidth: 480) // M6.2 — see OnboardingView
+        .padding(Tokens.spacingL)
+        .task {
+            await ShareAcceptanceModel.shared.discoverExistingHousehold()
+        }
+        .onChange(of: scenePhase) { _, phase in
+            if phase == .active {
+                Task { await ShareAcceptanceModel.shared.discoverExistingHousehold() }
+            }
         }
     }
 }

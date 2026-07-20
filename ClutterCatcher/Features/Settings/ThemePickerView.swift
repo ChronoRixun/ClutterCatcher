@@ -28,6 +28,7 @@ struct ThemePickerView: View {
                 Text("Themes follow your device's light and dark setting.")
             }
         }
+        .readableContentWidth() // M6.2
         .navigationTitle("Theme")
         .navigationBarTitleDisplayMode(.inline)
         .themedScreen()

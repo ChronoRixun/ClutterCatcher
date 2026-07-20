@@ -85,6 +85,7 @@ struct AppIconPickerView: View {
             }
             .themedRow()
         }
+        .readableContentWidth() // M6.2
         .navigationTitle("App Icon")
         .navigationBarTitleDisplayMode(.inline)
         .themedScreen()

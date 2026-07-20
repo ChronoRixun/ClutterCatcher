@@ -219,6 +219,8 @@ struct ItemEditorView: View {
                 }
             }
         }
+        // M6.2: form-sheet sizing on iPad (see RoomEditorView).
+        .presentationSizing(.form)
     }
 
     /// One category chip in the picker row. A plain Button would make the

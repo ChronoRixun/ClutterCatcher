@@ -233,6 +233,7 @@ struct ScanView: View {
             }
             .themedRow()
         }
+        .readableContentWidth() // M6.2
         .themedScreen()
         .animation(cardEntranceAnimation, value: scanSuccess?.presentationID)
     }
@@ -320,6 +321,8 @@ struct ScanView: View {
             onScanAgain: {
                 scanSuccess = nil
             })
+            // M6.2: a reward card, not a banner — cap it on wide viewfinders.
+            .frame(maxWidth: 520)
             .padding(Tokens.spacingL)
         if cardEntranceAnimation == nil {
             card
@@ -360,6 +363,7 @@ struct ScanView: View {
         .padding(Tokens.spacingL)
         .frame(maxWidth: .infinity)
         .background(.regularMaterial, in: RoundedRectangle(cornerRadius: Tokens.cornerRadius))
+        .frame(maxWidth: 520) // M6.2 — see successCard
         .padding(Tokens.spacingL)
     }
 }
