@@ -34,6 +34,8 @@ struct DataScannerRepresentable: UIViewControllerRepresentable {
 
     static func dismantleUIViewController(_ scanner: DataScannerViewController, coordinator: Coordinator) {
         scanner.stopScanning()
+        // U1/DL11: teardown is the one stop ScanView's onChange can't see.
+        Torch.apply(on: false)
     }
 
     func makeCoordinator() -> Coordinator {

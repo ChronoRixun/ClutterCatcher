@@ -18,3 +18,25 @@ enum Route: Hashable, Sendable {
         }
     }
 }
+
+/// Everything the app answers a URL with: a catalog destination (the QR
+/// payload vocabulary) or `cluttercatcher://scan` (M7a — U10's prerequisite),
+/// which selects the Scan tab exactly as a tap would.
+enum DeepLink: Hashable, Sendable {
+    case catalog(Route)
+    case scan
+
+    static let scanHost = "scan"
+
+    init?(url: URL) {
+        if let route = Route(deepLink: url) {
+            self = .catalog(route)
+        } else if url.scheme?.lowercased() == QRPayload.scheme,
+                  url.host?.lowercased() == Self.scanHost,
+                  url.path.isEmpty || url.path == "/" {
+            self = .scan
+        } else {
+            return nil
+        }
+    }
+}

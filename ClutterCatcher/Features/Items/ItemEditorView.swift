@@ -13,7 +13,9 @@ import SwiftUI
 struct ItemEditorView: View {
     /// nil creates a new item in `containerID`.
     let item: Item?
-    let containerID: String
+    /// The container the editor was opened from. Cover actions stay pinned
+    /// here — the staged U2 move below only lands on Save.
+    let originalContainerID: String
 
     @Environment(\.appDatabase) private var appDatabase
     @Environment(\.photoStore) private var photoStore
@@ -27,6 +29,11 @@ struct ItemEditorView: View {
     @State private var isConfirmingDelete = false
     @State private var saveError: String?
     @State private var createdByName: String?
+
+    // U2: where the item lives — staged like every other field, committed
+    // on Save through the same LocalMutation write.
+    @State private var containerID: String
+    @State private var containerCandidates: [ContainerCandidate] = []
 
     // Photo state (M6).
     @State private var photoAssetRef: String?
@@ -52,7 +59,8 @@ struct ItemEditorView: View {
 
     init(item: Item?, containerID: String) {
         self.item = item
-        self.containerID = containerID
+        originalContainerID = containerID
+        _containerID = State(initialValue: item?.containerId ?? containerID)
         _name = State(initialValue: item?.name ?? "")
         _quantity = State(initialValue: item?.quantity ?? 1)
         _notes = State(initialValue: item?.notes ?? "")
@@ -100,6 +108,22 @@ struct ItemEditorView: View {
                     }
                     .accessibilityElement(children: .contain)
                     .accessibilityValue("\(quantity)")
+                }
+                // U2: reorganizing without delete-and-recreate. Grouped by
+                // room, current container checked; committed on Save.
+                Section {
+                    NavigationLink {
+                        ContainerPickerView(
+                            candidates: containerCandidates, selection: $containerID)
+                    } label: {
+                        LabeledContent("Container", value: stagedContainerName)
+                    }
+                } header: {
+                    Text("Container")
+                } footer: {
+                    if containerID != (item?.containerId ?? originalContainerID) {
+                        Text("Moves when you save.")
+                    }
                 }
                 Section("Category") {
                     // §4: wrapping chip row — selected is filled, the rest
@@ -300,8 +324,10 @@ struct ItemEditorView: View {
         isCover = makeCover
         Task {
             do {
+                // Applies immediately (§6), so it targets the container the
+                // item is actually in — never a staged, unsaved move.
                 try await containerRepository.setCover(
-                    containerID: containerID, itemID: makeCover ? itemID : nil)
+                    containerID: originalContainerID, itemID: makeCover ? itemID : nil)
             } catch {
                 isCover = !makeCover // revert on failure
                 Log.data.error("Set cover failed: \(String(describing: error))")
@@ -318,6 +344,11 @@ struct ItemEditorView: View {
         } catch {
             Log.data.error("Category fetch for picker failed: \(String(describing: error))")
         }
+        do {
+            containerCandidates = try await containerRepository.allCandidates()
+        } catch {
+            Log.data.error("Container fetch for picker failed: \(String(describing: error))")
+        }
         if let createdBy = item?.createdBy {
             createdByName = try? await appDatabase.writer.read { db in
                 try Participant.displayName(db, createdBy: createdBy)
@@ -325,12 +356,18 @@ struct ItemEditorView: View {
         }
         if let item {
             do {
-                let container = try await containerRepository.fetchContainer(id: containerID)
+                let container = try await containerRepository.fetchContainer(id: originalContainerID)
                 isCover = (container?.coverItemId == item.id)
             } catch {
                 Log.data.error("Cover state fetch failed: \(String(describing: error))")
             }
         }
+    }
+
+    /// The staged container's name for the U2 row — blank until the
+    /// candidate list loads (one beat after presentation).
+    private var stagedContainerName: String {
+        containerCandidates.first { $0.id == containerID }?.container.name ?? ""
     }
 
     // MARK: Save / delete
@@ -341,10 +378,12 @@ struct ItemEditorView: View {
         let notes = notes
         let categoryID = categoryID
         let photoAssetRef = photoAssetRef
+        let containerID = containerID
         let existing = item
         Task {
             do {
                 if var item = existing {
+                    item.containerId = containerID // U2 — the staged move
                     item.name = name
                     item.quantity = quantity
                     item.notes = notes

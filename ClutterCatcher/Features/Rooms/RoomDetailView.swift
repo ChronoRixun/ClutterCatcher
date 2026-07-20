@@ -7,6 +7,7 @@ struct RoomDetailView: View {
     @Environment(\.appDatabase) private var appDatabase
     @Environment(\.dismiss) private var dismiss
     @Environment(ThemeStore.self) private var themeStore
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     @State private var room: Room?
     @State private var roomLoaded = false
@@ -16,6 +17,10 @@ struct RoomDetailView: View {
     /// Fen's ear-perk on the empty state's primary button (§5 M4b — the
     /// same "Add Your First Room" pattern; Cozy and Pop! only).
     @State private var fenPerkTrigger = 0
+    /// U3: the one-shot "Print a label for this bin?" offer, plus the
+    /// print flow it opens with that container preselected.
+    @State private var labelNudge = LabelNudgeState()
+    @State private var printingOffer: LabelNudgeState.Offer?
 
     private var roomRepository: RoomRepository { RoomRepository(database: appDatabase) }
     private var containerRepository: ContainerRepository { ContainerRepository(database: appDatabase) }
@@ -46,12 +51,21 @@ struct RoomDetailView: View {
             }
         }
         .sheet(isPresented: $isAddingContainer) {
-            ContainerEditorView(container: nil, defaultRoomID: roomID)
+            ContainerEditorView(container: nil, defaultRoomID: roomID) { container, created in
+                labelNudge.containerSaved(
+                    id: container.id, name: container.name, created: created)
+            }
         }
         .sheet(isPresented: $isEditingRoom) {
             if let room {
                 RoomEditorView(room: room)
             }
+        }
+        // The offer survives under the sheet and clears on dismiss — the
+        // nudge served its purpose either way, and clearing it *while*
+        // presenting would race the presentation (DL59's lesson).
+        .sheet(item: $printingOffer, onDismiss: { labelNudge.dismiss() }) { offer in
+            LabelSheetView(preselectedContainerIDs: [offer.containerID])
         }
         .task {
             do {
@@ -112,24 +126,78 @@ struct RoomDetailView: View {
                 }
             } else {
                 List {
-                    ForEach(containers) { entry in
-                        NavigationLink(value: Route.container(id: entry.container.id)) {
-                            ContainerRow(entry: entry)
+                    // U3: one inline offer after a creation — never a modal,
+                    // never persisted, gone on dismiss or once printing opens.
+                    if let offer = labelNudge.offer {
+                        Section {
+                            LabelNudgeRow(
+                                offer: offer,
+                                onPrint: { printingOffer = offer },
+                                onDismiss: { labelNudge.dismiss() })
                         }
+                        .themedRow()
                     }
-                    .onDelete { offsets in
-                        let ids = offsets.map { containers[$0].container.id }
-                        Task {
-                            do {
-                                try await containerRepository.deleteContainers(ids: ids)
-                            } catch {
-                                Log.data.error("Container delete failed: \(String(describing: error))")
+                    Section {
+                        ForEach(containers) { entry in
+                            NavigationLink(value: Route.container(id: entry.container.id)) {
+                                ContainerRow(entry: entry)
                             }
                         }
+                        .onDelete { offsets in
+                            let ids = offsets.map { containers[$0].container.id }
+                            Task {
+                                do {
+                                    try await containerRepository.deleteContainers(ids: ids)
+                                } catch {
+                                    Log.data.error("Container delete failed: \(String(describing: error))")
+                                }
+                            }
+                        }
+                        .themedRow()
                     }
-                    .themedRow()
                 }
+                // U12: the nudge's arrival/departure rides the theme's
+                // settle spring; one plain fade under Reduce Motion.
+                .animation(
+                    themeStore.theme.motion.animation(.settle, reduceMotion: reduceMotion),
+                    value: labelNudge.offer)
             }
+        }
+    }
+}
+
+/// U3's inline offer row: text, a Print button into the label-sheet flow
+/// with the new container preselected, and an explicit dismiss. Borderless
+/// button styles keep the three targets independent inside the row.
+private struct LabelNudgeRow: View {
+    let offer: LabelNudgeState.Offer
+    let onPrint: () -> Void
+    let onDismiss: () -> Void
+
+    var body: some View {
+        HStack(spacing: Tokens.spacingM) {
+            Image(systemName: "printer")
+                .font(.title3)
+                .foregroundStyle(.tint)
+            VStack(alignment: .leading) {
+                Text("Print a label for this bin?")
+                    .font(.subheadline.weight(.medium))
+                Text(offer.containerName)
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+            }
+            Spacer()
+            Button("Print") { onPrint() }
+                .buttonStyle(.bordered)
+                .buttonBorderShape(.capsule)
+            Button {
+                onDismiss()
+            } label: {
+                Image(systemName: "xmark.circle.fill")
+                    .foregroundStyle(.secondary)
+            }
+            .buttonStyle(.borderless)
+            .accessibilityLabel("Dismiss")
         }
     }
 }

@@ -73,7 +73,9 @@ struct RoomEditorView: View {
     }
 }
 
-/// A grid of SF Symbol choices from the token sheet.
+/// U7: the curated household icon grid. Every tile sits on a subtle tinted
+/// wash; the current choice is ringed (the M4a app-icon picker's marker),
+/// not filled — `.tint` keeps both in the theme's accent, Classic included.
 struct IconPicker: View {
     @Binding var selection: String
 
@@ -88,10 +90,16 @@ struct IconPicker: View {
                     Image(systemName: symbol)
                         .font(.title3)
                         .frame(width: 44, height: 44)
-                        .foregroundStyle(symbol == selection ? Color.white : Color.accentColor)
+                        .foregroundStyle(.tint)
                         .background(
-                            symbol == selection ? Color.accentColor : Color.clear,
+                            .tint.opacity(0.12),
                             in: RoundedRectangle(cornerRadius: Tokens.cornerRadius - 4))
+                        .overlay {
+                            if symbol == selection {
+                                RoundedRectangle(cornerRadius: Tokens.cornerRadius - 4)
+                                    .strokeBorder(.tint, lineWidth: 2)
+                            }
+                        }
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel(symbol)

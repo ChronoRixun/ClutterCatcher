@@ -177,14 +177,24 @@ struct RoomsHomeView: View {
 
     private var roomList: some View {
         List {
-            // §4: live counts under the large title.
+            // §4 + U4: the line under the large title grows up with the
+            // catalog — aspiration until the first container exists, live
+            // counts after (RoomsSubtitle owns the threshold).
             Section {
-                Text("^[\(entries.count) room](inflect: true) · ^[\(totalContainerCount) container](inflect: true) · everything has a home")
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-                    .listRowBackground(Color.clear)
-                    .listRowInsets(EdgeInsets(top: 0, leading: Tokens.spacingS, bottom: 0, trailing: 0))
-                    .listRowSeparator(.hidden)
+                Group {
+                    switch RoomsSubtitle.subtitle(
+                        roomCount: entries.count, containerCount: totalContainerCount) {
+                    case .aspirational:
+                        Text("Let's give everything a home — start by adding bins to a room.")
+                    case .counts(let rooms, let containers):
+                        Text("^[\(rooms) room](inflect: true) · ^[\(containers) container](inflect: true) · everything has a home")
+                    }
+                }
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+                .listRowBackground(Color.clear)
+                .listRowInsets(EdgeInsets(top: 0, leading: Tokens.spacingS, bottom: 0, trailing: 0))
+                .listRowSeparator(.hidden)
             }
             Section {
                 ForEach(Array(entries.enumerated()), id: \.element.id) { index, entry in
@@ -238,16 +248,26 @@ private struct RoomRow: View {
         // keyed off the room's persisted sort position.
         let tileColor = themeStore.theme.cycleAccent(forSortOrder: entry.room.sortOrder)
         HStack(spacing: Tokens.spacingM) {
-            Image(systemName: entry.room.icon ?? Tokens.defaultRoomIcon)
+            Image(systemName: entry.room.displayIcon)
                 .font(.title3)
                 .foregroundStyle(tileColor)
                 .frame(width: 36, height: 36)
                 .background(tileColor.opacity(0.15), in: RoundedRectangle(cornerRadius: Tokens.cornerRadius - 4))
             VStack(alignment: .leading) {
                 Text(entry.room.name)
-                Text("^[\(entry.containerCount) container](inflect: true)")
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
+                // U6: an empty room reads as an invitation, not dead weight —
+                // gentler words, one hierarchy step dimmer. Hierarchical
+                // styles derive from context, so this holds in all twelve
+                // palettes (and Classic — a skeleton change, T8 precedent).
+                if entry.containerCount == 0 {
+                    Text("No bins yet")
+                        .font(.subheadline)
+                        .foregroundStyle(.tertiary)
+                } else {
+                    Text("^[\(entry.containerCount) container](inflect: true)")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                }
             }
         }
     }

@@ -20,15 +20,21 @@ final class Router {
 
     /// Handles an incoming URL. A recognized payload switches to the Rooms
     /// tab and shows the destination (an unknown UUID still navigates — the
-    /// detail screen owns the friendly not-found state).
+    /// detail screen owns the friendly not-found state); the scan link
+    /// selects the Scan tab and nothing else.
     func open(url: URL) {
-        guard let route = Route(deepLink: url) else {
+        switch DeepLink(url: url) {
+        case .catalog(let route):
+            navigate(to: route)
+        case .scan:
+            // U10's prerequisite: exactly what tapping the Scan tab does —
+            // the catalog stack stays as it was.
+            selectedTab = .scan
+        case nil:
             if url.scheme?.lowercased() == QRPayload.scheme {
                 rejectedDeepLink = url
             }
-            return
         }
-        navigate(to: route)
     }
 
     /// Jumps straight to a destination, replacing the current catalog stack —
