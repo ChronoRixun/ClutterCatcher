@@ -850,6 +850,20 @@ human gate (soak continues; Shelley's sign-off still closes M4).
   DL74's "sequence automation on state, not pixels" caveat but inverted:
   here pixels were the only honest signal available.
 
+### 2026-07-20 — M7b merged; M7 gate fully OPEN
+
+- **Claude's in-depth review passed** (Spotlight observation seam, guard's
+  structural never-strand, the DL87 fix's keying + cancellation, extension
+  target shape) and Owen directed the merge sight-unseen on device — he's
+  away from home. `feat/system-m7b` merged to `main` (`--no-ff`, 11b8281).
+  **Every human VERIFY item that closes M7 is outstanding**: home-screen
+  search finds a real item without opening the app · Siri answers "where
+  are the Christmas lights" · Control Center button at the shed door ·
+  Seasonal shows everything Seasonal · index survives a sync cycle · the
+  seeding guard offers the join on a second device · plus DL87's deliberate
+  scan-B-while-on-A check and the sim-blocked intent *run* (DL89). Run 11's
+  Spotlight-categories question is pending Owen below.
+
 ### 2026-07-20 — M6.2 merged; gate PARTIALLY closed
 
 - Claude's review passed (bootstrap convergence onto one join path, race
