@@ -681,6 +681,94 @@ unchanged (touch-list only) and the question stands.
   trivial — every animation already resolves through the `reduceMotion:`
   seam, so an app flag just ORs in. Not built on speculation.
 
+### 2026-07-19 — Run 8 (M7a, in-app polish — local Mac, green build)
+
+Slice per `planning/m7-polish-plan.md` §3 (M7a): U1–U7 + the
+`cluttercatcher://scan` route, under U11/U12. Zero schema, zero CloudKit
+surface held by construction and by measurement: `Sync/` untouched, no
+migration, no `project.yml` change, and a full sandbox-sim session (fresh
+`CC-M7a-Sandbox`, never the live-syncing iPhone 17 sim) ended with
+`pending_changes` at exactly seed + the four deliberate creations — the U2
+move and U7 icon edit re-stamped their existing queue rows without adding
+any (receipts in `artifacts/m7a/`). `sync_events` stayed 0; settings gained
+only the local theme key. Built and tested under stable Xcode 26.6 —
+`scripts/test.sh` green, **207 tests / 24 suites** (one new: PolishTests;
+DeepLinkTests +7, RepositoryTests +3). The DL58 theming-coverage question
+was still open at run time, so themed-surface coverage ships unchanged and
+every new surface resolves through the existing seams (root tint, `.tint`,
+`themedRow()`, the motion `settle` role; editors and pickers keep native
+sheet treatment per T5).
+
+- **DL67 — U4's threshold is "any container at all."** The only
+  non-arbitrary boundary: the moment the first bin exists, the counts line
+  has something true to say; before that, "12 rooms · 0 containers" only
+  undersells. `RoomsSubtitle` is the pure, tested function; the aspirational
+  line reads "Let's give everything a home — start by adding bins to a
+  room." (echoing the empty-state title so the app speaks with one voice).
+- **DL68 — A U2 move clears the source container's cover as a tracked
+  save.** Moving out the item a container fronts would leave that
+  container's `cover_item_id` dangling — display tolerates it (P10), but
+  the old bin showing a photo of something no longer inside is visibly
+  wrong. `ItemRepository.updateItem` detects the container change and
+  clears the stale pointer in the same transaction, the P11 pattern, so
+  peers converge too (tests pin: plain move = exactly one queue row; cover
+  move = item + source container; rename ≠ move). In the editor, cover
+  actions stay pinned to the *original* container — a staged, unsaved move
+  can never re-aim "Set as Container Cover."
+- **DL69 — U3 nudge mechanics.** `LabelNudgeState` is pure, tested state
+  (created → offer, edit → never, newest creation replaces, dismiss →
+  gone); the editor reports through a new `onSaved(_:created:)` seam. Two
+  judgment calls: the offer is *view-lived* (leaving the room forgets it —
+  "no persisted state" taken literally), and the print flow clears it on
+  the label sheet's **dismissal**, not its presentation — clearing the row
+  in the same transaction that presents the sheet is exactly the DL59 race.
+  Verified live in-sim: create → nudge → Print opens the sheet with the
+  container preselected; X dismisses; both paths one-shot.
+- **DL70 — U6 is words plus one hierarchy step.** Empty rooms say "No bins
+  yet" in `.tertiary` (populated rows keep "N containers" `.secondary`).
+  Hierarchical styles derive from context, so the treatment holds across
+  all twelve palettes with zero per-theme values; a tappable "Add a bin"
+  affordance was considered and dropped — the row already navigates to a
+  screen whose empty state is that button.
+- **DL71 — U7 icon set + ring.** `Tokens.roomIcons` grows 15 → 24 curated
+  household symbols (rooms → garage/outdoors → workshop → storage →
+  hobbies; all present by iOS 16). Selection is a `.tint` ring — the M4a
+  app-icon picker's marker — instead of the old filled tile, and every tile
+  sits on a tinted wash so the grid follows each theme's accent, Classic
+  included. `Room.displayIcon` centralizes the nil fallback the DB keeps
+  honest. A test resolves every name via `UIImage(systemName:)` — a typo'd
+  symbol fails silently at render time (the DL55 lesson, applied to
+  symbols).
+- **DL72 — U1 torch ships, its hardware half unverifiable here.**
+  `TorchModel` (visibility + DL11 reset rules, tested) is separate from
+  `Torch` (the device-lock `torchMode` seam) — the standard technique
+  alongside `DataScannerViewController`, which owns its session and
+  exposes no torch API. The sim has neither camera nor torch, so
+  *coexistence could not be exercised in this run* — it rides Owen's
+  garage VERIFY, honestly flagged. Discipline extended past DL11: the
+  torch turns off on tab switch, result card, scene backgrounding, and
+  representable dismantle. If the scanner fights the lock on device, the
+  fallback is dropping the button — visibility logic and the isolated
+  hardware call make that a two-line change.
+- **DL73 — The scan route is a tab selection, nothing more.** `DeepLink`
+  (`.catalog(Route)` / `.scan`) wraps the existing Route parsing;
+  `Router.open` switches on it. "Exactly as a tap would" is test-pinned:
+  `selectedTab = .scan`, catalog stack untouched, no rejection alert.
+  Verified live via `simctl openurl` (through the system's "Open in
+  ClutterCatcher?" confirmation).
+- **DL74 — Sandbox-sim field notes (extends DL19/DL27/DL66).** (a) Shutting
+  a freshly created simulator down during/just after first-boot indexing
+  can wedge backboardd's event dispatch: frames keep rendering (clock
+  ticks) while *all* input is dead — idb HID, host-window clicks, even
+  Simulator.app's Home command — which masquerades as idb flakiness; a
+  clean shutdown/boot cures it. (b) On this fresh 26.5 sim every
+  text-injection channel failed (idb `ui text`, HID key-sequence, host
+  hardware-keyboard typing, `simctl pbcopy` timed out) while *touches*
+  stayed reliable — tap-typing on the software keyboard (⌘⇧K to disconnect
+  the hardware keyboard first) is the dependable path. (c) `simctl io
+  screenshot` can trail the UI by a frame or two — sequence automation on
+  DB state, not pixels.
+
 ## 2026-07-19 — Planning: M7 "Polish & The House That Knows" (with Owen)
 
 Born from the post-M4b polish review. New milestone, spec'd and
@@ -704,6 +792,40 @@ dispatch-ready:
 - **Sequencing:** no hard dependency on M5/M6 in either direction —
   dispatch order is Owen's call under the one-open-milestone rule;
   M7a → M7b is the only fixed ordering.
+
+## 2026-07-20 — Planning: deep-review amendments + M6.2 iPad dispatch (with Owen)
+
+A code-level walk of the feature surface (while M7a was being dispatched)
+found real gaps; Owen ruled on placement:
+
+- **U13 — Category browse (→ M7b).** Categories currently label but can't
+  *find*: search's category results render without a NavigationLink
+  (untappable) and CategoriesView taps open the editor, not the contents.
+  New `Route.category(id:)` browse view (items grouped room → container);
+  also U8's prerequisite — indexed categories need a destination.
+- **U14 — Matched-item highlight (→ M7b).** Item search results land on
+  the container without indicating the match; the container route gains an
+  optional highlight id (scroll-to + brief emphasis). Spotlight/intents
+  reuse it.
+- **M6 scope additions:** destructive-delete confirmations name their
+  blast radius with live counts; accessibility audit (VoiceOver on
+  icon-only controls, Dynamic Type at the largest sizes, themed contrast —
+  Arcade especially). M6 header now reads *partially shipped* (photos
+  Run 4, HEIC/GC M6.1).
+- **M8 preconditions made explicit:** Xcode 27 GM + all four family
+  devices on iOS 27 + the D3 target bump (a one-way door for dev-signed
+  installs). M8 is last by construction.
+- **M6.2 iPad dispatch written:** `planning/m6.2-ipad-kickoff-prompt.md` —
+  `TARGETED_DEVICE_FAMILY 1,2`, size-class-driven layout (sidebarAdaptable
+  tabs, readable widths, popover-anchor audit, themed surfaces at
+  arbitrary widths), and the one sync-adjacent item: the
+  **participant-second-device bootstrap**. Shelley's iPad is a fresh
+  install on an already-participant Apple ID — CKShare acceptance is
+  per-account, so the shared `Household` zone already exists in her shared
+  database, but DL29's join flow only knows the invite-callback path and
+  would wait forever. Fix: on "Join a household", discover the existing
+  shared zone and adopt via the DL33 wipe-and-adopt transaction, no invite
+  needed. Bootstrap code only; zero schema, zero contract change.
 
 ## Questions for Owen
 

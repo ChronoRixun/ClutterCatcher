@@ -116,16 +116,28 @@ struct ContainerRepository: Sendable {
         }
     }
 
-    /// Every container in the catalog with its room name, for label printing.
+    /// Every container in the catalog with its room name — room order, then
+    /// name — for label printing and the item editor's container picker.
+    private static let allCandidatesSQL = """
+        SELECT containers.*, rooms.name AS room_name
+        FROM containers
+        JOIN rooms ON rooms.id = containers.room_id
+        ORDER BY rooms.sort_order, rooms.name COLLATE NOCASE,
+                 containers.name COLLATE NOCASE
+        """
+
     func observeAllCandidates() -> AsyncValueObservation<[ContainerCandidate]> {
         database.observe { db in
-            try ContainerCandidate.fetchAll(db, sql: """
-                SELECT containers.*, rooms.name AS room_name
-                FROM containers
-                JOIN rooms ON rooms.id = containers.room_id
-                ORDER BY rooms.sort_order, rooms.name COLLATE NOCASE,
-                         containers.name COLLATE NOCASE
-                """)
+            try ContainerCandidate.fetchAll(db, sql: Self.allCandidatesSQL)
+        }
+    }
+
+    /// One-shot snapshot of the same list, for the item editor (U2) — the
+    /// picker lives inside an editing session, so a live observation would
+    /// churn state under the user for no benefit.
+    func allCandidates() async throws -> [ContainerCandidate] {
+        try await database.writer.read { db in
+            try ContainerCandidate.fetchAll(db, sql: Self.allCandidatesSQL)
         }
     }
 

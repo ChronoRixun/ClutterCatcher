@@ -28,3 +28,10 @@ struct Room: Identifiable, Equatable, Sendable, Codable {
 extension Room: FetchableRecord, PersistableRecord {
     static let databaseTableName = "rooms"
 }
+
+extension Room {
+    /// The symbol every surface renders for this room — `icon` with the U7
+    /// nil fallback. The database keeps the honest nil; only display fills
+    /// it in.
+    var displayIcon: String { icon ?? Tokens.defaultRoomIcon }
+}

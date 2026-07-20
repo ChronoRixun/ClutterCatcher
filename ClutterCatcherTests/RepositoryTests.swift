@@ -218,4 +218,95 @@ import Testing
         let literal = try await firstValue(of: search.observeResults(matching: "100%"))
         #expect(literal.items.map(\.item.name) == ["100% cotton sheets"])
     }
+
+    // MARK: Item moves (U2, M7a)
+
+    @Test func itemMoveQueuesExactlyOneTrackedSaveAndRestamps() async throws {
+        let database = try makeDatabase()
+        let rooms = RoomRepository(database: database)
+        let containers = ContainerRepository(database: database)
+        let items = ItemRepository(database: database)
+        let garage = try await rooms.createRoom(name: "Garage", icon: nil)
+        let binA = try await containers.createContainer(roomID: garage.id, name: "Bin A", notes: nil)
+        let binB = try await containers.createContainer(roomID: garage.id, name: "Bin B", notes: nil)
+        let created = try await items.createItem(
+            containerID: binA.id, name: "Christmas Lights", quantity: 1, notes: nil, categoryID: nil)
+
+        // Isolate the move's own queue footprint from the setup writes.
+        try await database.writer.write { _ = try PendingChange.deleteAll($0) }
+        // Outlast Date resolution + GRDB's millisecond truncation (see
+        // roomUpdateRenamesAndBumpsTimestamp) so the restamp is provable.
+        try await Task.sleep(for: .milliseconds(20))
+
+        var moved = created
+        moved.containerId = binB.id
+        try await items.updateItem(moved)
+
+        let fetched = try #require(try await items.fetchItem(id: created.id))
+        #expect(fetched.containerId == binB.id)
+        #expect(fetched.updatedAt > created.updatedAt, "a move is an ordinary edit — it restamps")
+
+        let pending = try await database.writer.read { try PendingChange.fetchAll($0) }
+        #expect(pending.count == 1, "exactly the item's own tracked save")
+        let change = try #require(pending.first)
+        #expect(change.recordId == created.id)
+        #expect(change.recordType == .item)
+        #expect(change.changeKind == .save)
+        #expect(change.queuedAt == fetched.updatedAt)
+    }
+
+    @Test func itemMoveClearsTheSourceContainersCoverAsATrackedSave() async throws {
+        let database = try makeDatabase()
+        let rooms = RoomRepository(database: database)
+        let containers = ContainerRepository(database: database)
+        let items = ItemRepository(database: database)
+        let garage = try await rooms.createRoom(name: "Garage", icon: nil)
+        let binA = try await containers.createContainer(roomID: garage.id, name: "Bin A", notes: nil)
+        let binB = try await containers.createContainer(roomID: garage.id, name: "Bin B", notes: nil)
+        let created = try await items.createItem(
+            containerID: binA.id, name: "Photo'd Thing", quantity: 1, notes: nil,
+            categoryID: nil, photoAssetRef: "REF-1")
+        try await containers.setCover(containerID: binA.id, itemID: created.id)
+
+        try await database.writer.write { _ = try PendingChange.deleteAll($0) }
+
+        var moved = created
+        moved.containerId = binB.id
+        try await items.updateItem(moved)
+
+        // The moved item no longer fronts Bin A — the stale pointer is
+        // cleared as a tracked save so peers converge too (the P11 pattern).
+        let sourceAfter = try #require(try await containers.fetchContainer(id: binA.id))
+        #expect(sourceAfter.coverItemId == nil)
+        let destinationAfter = try #require(try await containers.fetchContainer(id: binB.id))
+        #expect(destinationAfter.coverItemId == nil, "moving in never auto-designates a cover")
+
+        let pending = try await database.writer.read { try PendingChange.fetchAll($0) }
+        #expect(Set(pending.map(\.recordId)) == [created.id, binA.id])
+        #expect(pending.allSatisfy { $0.changeKind == .save })
+    }
+
+    @Test func itemEditWithoutMoveLeavesCoverAlone() async throws {
+        let database = try makeDatabase()
+        let rooms = RoomRepository(database: database)
+        let containers = ContainerRepository(database: database)
+        let items = ItemRepository(database: database)
+        let garage = try await rooms.createRoom(name: "Garage", icon: nil)
+        let binA = try await containers.createContainer(roomID: garage.id, name: "Bin A", notes: nil)
+        let created = try await items.createItem(
+            containerID: binA.id, name: "Photo'd Thing", quantity: 1, notes: nil,
+            categoryID: nil, photoAssetRef: "REF-1")
+        try await containers.setCover(containerID: binA.id, itemID: created.id)
+
+        try await database.writer.write { _ = try PendingChange.deleteAll($0) }
+
+        var renamed = created
+        renamed.name = "Renamed Thing"
+        try await items.updateItem(renamed)
+
+        let after = try #require(try await containers.fetchContainer(id: binA.id))
+        #expect(after.coverItemId == created.id, "a rename is not a move — the cover stays")
+        let pending = try await database.writer.read { try PendingChange.fetchAll($0) }
+        #expect(pending.map(\.recordId) == [created.id])
+    }
 }

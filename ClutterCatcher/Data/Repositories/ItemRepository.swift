@@ -48,6 +48,17 @@ struct ItemRepository: Sendable {
         item.quantity = max(1, item.quantity)
         item.notes = item.notes.normalizedNotes
         try await database.performLocalMutation { [item] mutation in
+            // U2: an item moving out of a container it fronts would leave
+            // the source's cover pointing at an item that's no longer
+            // inside. Clear it as a tracked save in the same transaction —
+            // the P11 pattern — so peers converge too.
+            if let previous = try Item.fetchOne(mutation.db, key: item.id),
+               previous.containerId != item.containerId,
+               var source = try Container.fetchOne(mutation.db, key: previous.containerId),
+               source.coverItemId == item.id {
+                source.coverItemId = nil
+                try mutation.save(&source)
+            }
             var item = item
             try mutation.save(&item)
         }

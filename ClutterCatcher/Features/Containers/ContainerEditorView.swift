@@ -5,6 +5,9 @@ struct ContainerEditorView: View {
     /// nil creates a new container.
     let container: Container?
     let defaultRoomID: String
+    /// Reports every successful save with whether it was a creation — the
+    /// U3 label nudge keys off exactly that distinction.
+    let onSaved: ((Container, _ created: Bool) -> Void)?
 
     @Environment(\.appDatabase) private var appDatabase
     @Environment(\.dismiss) private var dismiss
@@ -18,9 +21,13 @@ struct ContainerEditorView: View {
     private var containerRepository: ContainerRepository { ContainerRepository(database: appDatabase) }
     private var roomRepository: RoomRepository { RoomRepository(database: appDatabase) }
 
-    init(container: Container?, defaultRoomID: String) {
+    init(
+        container: Container?, defaultRoomID: String,
+        onSaved: ((Container, _ created: Bool) -> Void)? = nil
+    ) {
         self.container = container
         self.defaultRoomID = defaultRoomID
+        self.onSaved = onSaved
         _name = State(initialValue: container?.name ?? "")
         _roomID = State(initialValue: container?.roomId ?? defaultRoomID)
         _notes = State(initialValue: container?.notes ?? "")
@@ -78,16 +85,22 @@ struct ContainerEditorView: View {
         let existing = container
         Task {
             do {
+                let saved: Container
+                let created: Bool
                 if var container = existing {
                     container.name = name
                     container.roomId = roomID
                     container.notes = notes
                     try await containerRepository.updateContainer(container)
+                    saved = container
+                    created = false
                 } else {
-                    try await containerRepository.createContainer(
+                    saved = try await containerRepository.createContainer(
                         roomID: roomID, name: name, notes: notes)
+                    created = true
                 }
                 Haptics.saveSoftImpact() // T10 — every theme
+                onSaved?(saved, created)
                 dismiss()
             } catch {
                 Log.data.error("Container save failed: \(String(describing: error))")

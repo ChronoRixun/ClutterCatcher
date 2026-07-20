@@ -38,6 +38,8 @@ struct ScanView: View {
     @Environment(ThemeStore.self) private var themeStore
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
+    @Environment(\.scenePhase) private var scenePhase
+
     @State private var scanProblem: ScanProblem?
     @State private var scanSuccess: ScanSuccess?
     @State private var confettiGuard = ConfettiGuard()
@@ -46,6 +48,9 @@ struct ScanView: View {
     @State private var confettiBurstID: UUID?
     @State private var manualEntry = ""
     @State private var cameraAccess: CameraAccess = .undetermined
+    /// U1: dark-garage flashlight. The model is the testable logic; the
+    /// hardware call lives in `Torch` and is applied only at this seam.
+    @State private var torch = TorchModel(isAvailable: Torch.deviceHasTorch)
 
     var body: some View {
         NavigationStack {
@@ -97,15 +102,16 @@ struct ScanView: View {
 
     // MARK: Camera path (hardware)
 
+    /// Pause while a problem or success card is up, and stop the capture
+    /// session entirely when another tab is selected ("Open It Up" switches
+    /// tabs — the camera must not stay live behind it).
+    private var scannerIsActive: Bool {
+        router.selectedTab == .scan && scanProblem == nil && scanSuccess == nil
+    }
+
     private var scannerBody: some View {
         ZStack {
-            // Pause while a problem or success card is up, and stop the
-            // capture session entirely when another tab is selected ("Open
-            // It Up" switches tabs — the camera must not stay live behind
-            // it).
-            DataScannerRepresentable(
-                isActive: router.selectedTab == .scan && scanProblem == nil && scanSuccess == nil
-            ) { payload in
+            DataScannerRepresentable(isActive: scannerIsActive) { payload in
                 handle(scanned: payload)
             }
             .ignoresSafeArea()
@@ -139,6 +145,37 @@ struct ScanView: View {
             }
             .animation(cardEntranceAnimation, value: scanSuccess?.presentationID)
         }
+        // U1: shown only on devices with a torch; themed like the hint pill.
+        .overlay(alignment: .topTrailing) {
+            if torch.buttonVisible {
+                Button {
+                    torch.toggle()
+                    Torch.apply(on: torch.isOn)
+                } label: {
+                    Image(systemName: torch.isOn ? "flashlight.on.fill" : "flashlight.off.fill")
+                        .font(.title3)
+                        .foregroundStyle(torch.isOn ? AnyShapeStyle(.tint) : AnyShapeStyle(.primary))
+                        .padding(Tokens.spacingM)
+                        .background(.thinMaterial, in: Circle())
+                }
+                .padding(Tokens.spacingL)
+                .accessibilityLabel(torch.isOn ? "Turn flashlight off" : "Turn flashlight on")
+            }
+        }
+        // DL11 discipline, extended: the torch never outlives the scanner —
+        // card up, tab away, or app backgrounded all turn it off.
+        .onChange(of: scannerIsActive) { _, active in
+            if !active { turnTorchOff() }
+        }
+        .onChange(of: scenePhase) { _, phase in
+            if phase != .active { turnTorchOff() }
+        }
+    }
+
+    private func turnTorchOff() {
+        guard torch.isOn else { return }
+        torch.scannerStopped()
+        Torch.apply(on: false)
     }
 
     // MARK: Manual path
@@ -183,7 +220,9 @@ struct ScanView: View {
                 }
             }
             Section("Label code") {
-                TextField("cluttercatcher://c/… or UUID", text: $manualEntry)
+                // U5: household English — the parser still takes the full
+                // cluttercatcher:// form or a bare UUID, unchanged.
+                TextField("Type the code from the label", text: $manualEntry)
                     .textInputAutocapitalization(.never)
                     .autocorrectionDisabled()
                     .font(.body.monospaced())

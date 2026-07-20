@@ -47,11 +47,16 @@ enum Tokens {
 
     // MARK: Iconography
 
-    /// SF Symbols offered by the room icon picker. All available since iOS 15.
+    /// SF Symbols offered by the room icon picker (U7): a curated
+    /// household set — rooms first, then garage/outdoors, workshop,
+    /// storage, hobbies. All present by iOS 16, well under the D3 ceiling;
+    /// PolishTests pins every name to a real symbol.
     static let roomIcons: [String] = [
-        "fork.knife", "sofa", "bed.double", "lamp.desk", "car",
-        "archivebox", "shippingbox", "stairs", "washer", "books.vertical",
-        "gamecontroller", "tshirt", "wrench.and.screwdriver", "leaf", "house",
+        "house", "fork.knife", "refrigerator", "sofa", "tv",
+        "bed.double", "teddybear", "lamp.desk", "books.vertical", "bathtub",
+        "washer", "stairs", "door.garage.closed", "car", "bicycle",
+        "leaf", "tent", "wrench.and.screwdriver", "paintbrush", "shippingbox",
+        "archivebox", "basket", "tshirt", "gamecontroller",
     ]
 
     static let defaultRoomIcon = "archivebox"
