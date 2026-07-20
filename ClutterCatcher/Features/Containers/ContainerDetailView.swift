@@ -10,6 +10,7 @@ struct ContainerDetailView: View {
     @Environment(\.photoStore) private var photoStore
     @Environment(\.syncCoordinator) private var coordinator
     @Environment(\.dismiss) private var dismiss
+    @Environment(ThemeStore.self) private var themeStore
 
     @State private var detail: ContainerDetail?
     @State private var detailLoaded = false
@@ -34,6 +35,7 @@ struct ContainerDetailView: View {
         }
         .navigationTitle(detail?.container.name ?? "Container")
         .navigationBarTitleDisplayMode(.large)
+        .themedScreen()
         .toolbar {
             if detail != nil {
                 ToolbarItem(placement: .topBarTrailing) {
@@ -109,20 +111,35 @@ struct ContainerDetailView: View {
 
     private func contentList(_ detail: ContainerDetail) -> some View {
         List {
+            // §4: room and item count as chips under the title.
             Section {
-                LabeledContent("Room", value: detail.roomName)
-                if let notes = detail.container.notes {
-                    Text(notes)
-                        .foregroundStyle(.secondary)
+                HStack(spacing: Tokens.spacingS) {
+                    ThemedChip(text: detail.roomName, base: themeStore.theme.accent)
+                    ThemedChip(
+                        text: detail.items.count == 1 ? "1 item" : "\(detail.items.count) items",
+                        base: themeStore.theme.accent2)
                 }
-                if let createdByName = detail.createdByName {
-                    Text("Added by \(createdByName)")
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
-                }
+                .listRowBackground(Color.clear)
+                .listRowInsets(EdgeInsets(top: 0, leading: Tokens.spacingS, bottom: 0, trailing: 0))
+                .listRowSeparator(.hidden)
             }
 
-            Section("Items") {
+            if detail.container.notes != nil || detail.createdByName != nil {
+                Section {
+                    if let notes = detail.container.notes {
+                        Text(notes)
+                            .foregroundStyle(.secondary)
+                    }
+                    if let createdByName = detail.createdByName {
+                        Text("Added by \(createdByName)")
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                .themedRow()
+            }
+
+            Section("Inside") {
                 if detail.items.isEmpty {
                     Text("Nothing catalogued in here yet.")
                         .foregroundStyle(.secondary)
@@ -152,10 +169,12 @@ struct ContainerDetailView: View {
                     }
                 }
             }
+            .themedRow()
 
             Section("QR Label") {
                 QRLabelPreview(container: detail.container)
             }
+            .themedRow()
         }
         .refreshable {
             // P13: pull-to-refresh nudges a fetch so missing photos download.
@@ -175,17 +194,15 @@ private struct ItemRow: View {
                 // without a photo keep their original layout.
                 PhotoThumbnailView(ref: ref, size: 44)
             }
-            VStack(alignment: .leading) {
+            VStack(alignment: .leading, spacing: 4) {
                 Text(entry.item.name)
                 if let categoryName = entry.categoryName {
-                    HStack(spacing: 4) {
-                        Circle()
-                            .fill(Tokens.categoryColor(for: entry.categoryColorToken ?? "gray"))
-                            .frame(width: 8, height: 8)
-                        Text(categoryName)
-                    }
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
+                    // §4/T12: category as a tinted capsule chip, derived from
+                    // the category's own color so it works in every palette.
+                    ThemedChip(
+                        text: categoryName,
+                        base: Tokens.categoryColor(for: entry.categoryColorToken ?? "gray"),
+                        compact: true)
                 }
             }
             Spacer()

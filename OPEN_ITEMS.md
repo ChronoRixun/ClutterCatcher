@@ -487,7 +487,87 @@ PhotoStoreTests pass unchanged, as P16 promised).
   now." Success reports "Removed N files, freed X MB" / "Nothing to clean
   up." transiently in the section footer (P20).
 
+### 2026-07-19 — Run 6 (M4a, ThemeKit + Make It Yours — local Mac, green build)
+
+Slice per `planning/m4-themes-plan.md` §7 (M4a). Local-only per T2: no schema
+change, no migration, no CloudKit surface — `Sync/` untouched, theme state is
+a plain `settings` write, and the required zero-`pending_changes` test is in.
+Built and tested on Owen's Mac under stable Xcode 26.6 — `scripts/test.sh`
+green, 178 tests / 21 suites (one new: ThemeTests, 12 tests). M4b (motion
+personality, ear-perk, peeks, pixel sprite, confetti) not started, per the
+kickoff.
+
+- **DL54 — ThemeKit shape.** `Theme`/`Palette` are plain hex-valued data
+  (`Design/Theme.swift`); views resolve colors through dynamic
+  `UIColor { traits in … }` bridges so every theme follows the system
+  light/dark setting with zero `preferredColorScheme` (T4). Classic is a
+  *structural* no-op: `themedScreen()`/`themedRow()` short-circuit on
+  `isClassic` and its root tint is nil, leaving the asset-catalog AccentColor
+  in charge — pixel-equivalence isn't a matching palette, it's untouched
+  code paths. Palette role fallbacks (T3) are baked into the definitions
+  where the sheet names them (Pop! success → accent2, Fresh success →
+  accent); `Palette.hex(for:)` covers the rest (accent3 → accent2 → accent).
+  Note: navigation-bar large titles keep the system (non-rounded) font — T5's
+  "system bars keep native treatment" wins over the mockups' rounded titles;
+  content type is rounded via one root `.fontDesign(.rounded)` (T6).
+- **DL55 — T7's build setting is spelled differently in Xcode 26.**
+  `ASSETCATALOG_COMPILER_INCLUDE_ALL_APPICON_NAMES` (the plan's name) is
+  silently ignored — nothing warns, the alternates just never compile.
+  The live setting is `ASSETCATALOG_COMPILER_INCLUDE_ALL_APPICON_ASSETS`
+  (verified in `AssetCatalogCompiler.xcspec`; maps to actool's
+  `--include-all-app-icons`). A test asserts every alternate icon name is
+  registered under `CFBundleAlternateIcons` in the built Info.plist, so this
+  can never silently regress. The picker's tiles use duplicate preview
+  imagesets (`IconPreview-*`, ~350 KB total) because alternate appiconsets
+  aren't loadable via `Image(named:)`.
+- **DL56 — Fen's in-app Pop! colors come from the empty-state mock, not the
+  icon glyph.** `design/fen-geometry.md`'s Pop! row (cream body) describes
+  the *Fen Wink icon*, which sits on a pink gradient tile; on Pop!'s own
+  cream background a cream Fen vanishes (verified in-sim). The Pop Lead
+  Screens empty-state card (1e) draws Fen with the tangerine body
+  (`#FF8A3B`), so `Theme.pop.fenColors` uses that. Cozy and Arcade rows
+  translate as-is (their icon backgrounds match their theme backgrounds).
+  Same card confirmed the geometry doc's shape coordinates exactly.
+- **DL57 — Scan-success card semantics (§4).** An in-app container scan now
+  shows the "Found it!" card instead of navigating immediately; "Open It Up"
+  does the DL5 stack-replacing navigation. Camera-app deep links never pass
+  through ScanView, so they still navigate directly, and room scans (r/
+  payloads, unprintable today) keep the immediate jump — the card is a
+  container concept in the design. Two judgment calls: a quiet "Scan Again"
+  button rides under "Open It Up" (the scanner pauses behind the card, so
+  a wrong-bin scan needs an escape the mock doesn't show), and in the
+  manual-entry fallback the result card takes the *top* slot — replacing the
+  "camera unavailable" notice — because as a trailing Form section it
+  rendered half-hidden behind the tab bar.
+- **DL58 — Theme surface application covers the §8 touch-list screens
+  only.** Rooms/RoomDetail/ContainerDetail/Scan/Search/Settings + both
+  pickers get themed backgrounds and row surfaces; Family, Labels, 
+  Categories, Sync Activity, and Onboarding keep system backgrounds under
+  every theme in M4a (they still inherit the accent tint and rounded type,
+  and sheets keep native treatment by design, T5). Interim answer chosen as
+  most reversible — extending `themedScreen()`/`themedRow()` to a screen is
+  a two-line change. Flagged as a Question for Owen for the M4b scope.
+- **DL59 — Two presentation-timing fixes from the simulator pass.** (a) The
+  theme picker's "use the matching icon?" offer is presented only *after*
+  `ThemeStore.select` returns — setting the dialog flag in the same
+  transaction as the theme-change re-render got the presentation silently
+  dropped. (b) The App Icon picker reads
+  `UIApplication.shared.alternateIconName` live at render (with a bump token
+  after changes) — the original one-shot `.task` snapshot returned nil on
+  the iOS 26.5 sim even with an alternate icon active, ringing the wrong
+  tile. Both verified in-sim after the fix; neither is testable in the
+  hosted suite (presentation + system icon state).
+
 ## Questions for Owen
+
+### Run 6 (M4a)
+
+1. **Theme surface coverage beyond the touch-list (DL58).** Family, Labels,
+   Categories, Sync Activity, and Onboarding currently keep system
+   backgrounds in every theme (tint + rounded type do apply). Fold full
+   theming of those screens into M4b, or keep them system forever? Interim:
+   as shipped (touch-list only) — the mechanical extension is two lines per
+   screen whenever you decide.
 
 All four Run 4 questions resolved (Owen, 2026-07-19, post-VERIFY-start):
 

@@ -72,26 +72,56 @@ struct ItemEditorView: View {
                 Section {
                     TextField("Item name", text: $name)
                         .textInputAutocapitalization(.words)
-                    Stepper(value: $quantity, in: 1...999) {
-                        LabeledContent("Quantity", value: "\(quantity)")
+                    // §4: −/n/+ stepper per the mock. Borderless so the two
+                    // buttons stay independently tappable inside the row.
+                    LabeledContent("Quantity") {
+                        HStack(spacing: Tokens.spacingM) {
+                            Button {
+                                quantity = max(1, quantity - 1)
+                            } label: {
+                                Image(systemName: "minus.circle.fill")
+                                    .font(.title3)
+                            }
+                            .disabled(quantity <= 1)
+                            .accessibilityLabel("Decrease quantity")
+                            Text("\(quantity)")
+                                .font(.body.monospacedDigit())
+                                .frame(minWidth: 28)
+                            Button {
+                                quantity = min(999, quantity + 1)
+                            } label: {
+                                Image(systemName: "plus.circle.fill")
+                                    .font(.title3)
+                            }
+                            .disabled(quantity >= 999)
+                            .accessibilityLabel("Increase quantity")
+                        }
+                        .buttonStyle(.borderless)
                     }
+                    .accessibilityElement(children: .contain)
+                    .accessibilityValue("\(quantity)")
                 }
                 Section("Category") {
-                    Picker("Category", selection: $categoryID) {
-                        Text("None").tag(String?.none)
+                    // §4: wrapping chip row — selected is filled, the rest
+                    // tinted (T12); colors are the categories' own tokens.
+                    FlowLayout(spacing: Tokens.spacingS) {
+                        chipButton(title: "None", base: .gray, isSelected: categoryID == nil) {
+                            categoryID = nil
+                        }
                         ForEach(categories) { category in
-                            HStack {
-                                Circle()
-                                    .fill(Tokens.categoryColor(for: category.colorToken))
-                                    .frame(width: 10, height: 10)
-                                Text(category.name)
+                            chipButton(
+                                title: category.name,
+                                base: Tokens.categoryColor(for: category.colorToken),
+                                isSelected: categoryID == category.id
+                            ) {
+                                categoryID = category.id
                             }
-                            .tag(String?.some(category.id))
                         }
                     }
+                    .padding(.vertical, 2)
                 }
                 Section {
-                    TextField("Notes", text: $notes, axis: .vertical)
+                    TextField("Anything worth remembering?", text: $notes, axis: .vertical)
                         .lineLimit(3...6)
                 } header: {
                     Text("Notes")
@@ -165,6 +195,18 @@ struct ItemEditorView: View {
                 }
             }
         }
+    }
+
+    /// One category chip in the picker row. A plain Button would make the
+    /// whole Form row the tap target; borderless keeps each chip its own.
+    private func chipButton(
+        title: String, base: Color, isSelected: Bool, action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            ThemedChip(text: title, base: base, filled: isSelected)
+        }
+        .buttonStyle(.borderless)
+        .accessibilityAddTraits(isSelected ? .isSelected : [])
     }
 
     // MARK: Photo section

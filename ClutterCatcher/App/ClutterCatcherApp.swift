@@ -14,6 +14,9 @@ struct ClutterCatcherApp: App {
     @State private var router = Router()
     @State private var syncStatus: SyncStatusModel
     @State private var appModel: AppModel?
+    /// The active theme (M4). Loaded once at boot from the local `settings`
+    /// table; selection applies live through the environment.
+    @State private var themeStore: ThemeStore
     @Environment(\.scenePhase) private var scenePhase
 
     init() {
@@ -47,6 +50,7 @@ struct ClutterCatcherApp: App {
             _appModel = State(initialValue: nil)
             Log.app.critical("Database bootstrap failed: \(String(describing: error))")
         }
+        _themeStore = State(initialValue: ThemeStore.loaded(database: try? bootResult.get().0))
     }
 
     var body: some Scene {
@@ -61,6 +65,7 @@ struct ClutterCatcherApp: App {
                         .environment(router)
                         .environment(syncStatus)
                         .environment(appModel)
+                        .environment(themeStore)
                         .onOpenURL { url in
                             router.open(url: url)
                         }

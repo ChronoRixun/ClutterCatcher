@@ -6,6 +6,7 @@ struct RoomDetailView: View {
 
     @Environment(\.appDatabase) private var appDatabase
     @Environment(\.dismiss) private var dismiss
+    @Environment(ThemeStore.self) private var themeStore
 
     @State private var room: Room?
     @State private var roomLoaded = false
@@ -28,6 +29,7 @@ struct RoomDetailView: View {
         }
         .navigationTitle(room?.name ?? "Room")
         .navigationBarTitleDisplayMode(.large)
+        .themedScreen()
         .toolbar {
             if room != nil {
                 ToolbarItemGroup(placement: .topBarTrailing) {
@@ -78,7 +80,15 @@ struct RoomDetailView: View {
         Group {
             if containers.isEmpty {
                 ContentUnavailableView {
-                    Label("No Containers", systemImage: "shippingbox")
+                    if let fenColors = themeStore.theme.fenColors {
+                        VStack(spacing: Tokens.spacingM) {
+                            FenFigure(colors: fenColors)
+                                .frame(height: 88)
+                            Text("No Containers")
+                        }
+                    } else {
+                        Label("No Containers", systemImage: "shippingbox")
+                    }
                 } description: {
                     Text("Add the bins, drawers, and shelves that live in \(room.name).")
                 } actions: {
@@ -102,6 +112,7 @@ struct RoomDetailView: View {
                             }
                         }
                     }
+                    .themedRow()
                 }
             }
         }

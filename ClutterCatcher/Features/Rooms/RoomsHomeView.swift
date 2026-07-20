@@ -5,6 +5,7 @@ import SwiftUI
 struct RoomsHomeView: View {
     @Environment(\.appDatabase) private var appDatabase
     @Environment(Router.self) private var router
+    @Environment(ThemeStore.self) private var themeStore
 
     @State private var entries: [RoomListEntry] = []
     @State private var entriesLoaded = false
@@ -24,12 +25,22 @@ struct RoomsHomeView: View {
                 if !entriesLoaded {
                     ProgressView()
                 } else if entries.isEmpty {
+                    // §4 empty-state refresh; Fen appears where the theme's
+                    // presence dial says so (§5), blinking idly.
                     ContentUnavailableView {
-                        Label("No Rooms Yet", systemImage: "square.grid.2x2")
+                        if let fenColors = themeStore.theme.fenColors {
+                            VStack(spacing: Tokens.spacingM) {
+                                FenFigure(colors: fenColors)
+                                    .frame(height: 88)
+                                Text("Let's give everything a home")
+                            }
+                        } else {
+                            Label("Let's give everything a home", systemImage: "square.grid.2x2")
+                        }
                     } description: {
-                        Text("Add the rooms of your home, then fill them with containers.")
+                        Text("Add the rooms of your house, then fill them with bins, drawers, and shelves.")
                     } actions: {
-                        Button("Add Room") { isAddingRoom = true }
+                        Button("Add Your First Room") { isAddingRoom = true }
                             .buttonStyle(.borderedProminent)
                     }
                 } else {
@@ -37,6 +48,7 @@ struct RoomsHomeView: View {
                 }
             }
             .navigationTitle("Rooms")
+            .themedScreen()
             .catalogDestinations()
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
@@ -118,41 +130,62 @@ struct RoomsHomeView: View {
 
     private var roomList: some View {
         List {
-            ForEach(entries) { entry in
-                NavigationLink(value: Route.room(id: entry.room.id)) {
-                    RoomRow(entry: entry)
-                }
+            // §4: live counts under the large title.
+            Section {
+                Text("^[\(entries.count) room](inflect: true) · ^[\(totalContainerCount) container](inflect: true) · everything has a home")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .listRowBackground(Color.clear)
+                    .listRowInsets(EdgeInsets(top: 0, leading: Tokens.spacingS, bottom: 0, trailing: 0))
+                    .listRowSeparator(.hidden)
             }
-            .onMove { source, destination in
-                var reordered = entries
-                reordered.move(fromOffsets: source, toOffset: destination)
-                entries = reordered
-                let orderedIDs = reordered.map(\.room.id)
-                Task {
-                    do {
-                        try await repository.reorderRooms(orderedIDs: orderedIDs)
-                    } catch {
-                        Log.data.error("Room reorder failed: \(String(describing: error))")
+            Section {
+                ForEach(entries) { entry in
+                    NavigationLink(value: Route.room(id: entry.room.id)) {
+                        RoomRow(entry: entry)
                     }
                 }
-            }
-            .onDelete { offsets in
-                pendingDeletion = offsets.map { entries[$0] }
+                .onMove { source, destination in
+                    var reordered = entries
+                    reordered.move(fromOffsets: source, toOffset: destination)
+                    entries = reordered
+                    let orderedIDs = reordered.map(\.room.id)
+                    Task {
+                        do {
+                            try await repository.reorderRooms(orderedIDs: orderedIDs)
+                        } catch {
+                            Log.data.error("Room reorder failed: \(String(describing: error))")
+                        }
+                    }
+                }
+                .onDelete { offsets in
+                    pendingDeletion = offsets.map { entries[$0] }
+                }
+                .themedRow()
             }
         }
+    }
+
+    private var totalContainerCount: Int {
+        entries.reduce(0) { $0 + $1.containerCount }
     }
 }
 
 private struct RoomRow: View {
     let entry: RoomListEntry
 
+    @Environment(ThemeStore.self) private var themeStore
+
     var body: some View {
+        // T11: the icon tile's tint comes from the theme's accent cycle,
+        // keyed off the room's persisted sort position.
+        let tileColor = themeStore.theme.cycleAccent(forSortOrder: entry.room.sortOrder)
         HStack(spacing: Tokens.spacingM) {
             Image(systemName: entry.room.icon ?? Tokens.defaultRoomIcon)
                 .font(.title3)
-                .foregroundStyle(Color.accentColor)
+                .foregroundStyle(tileColor)
                 .frame(width: 36, height: 36)
-                .background(.quaternary, in: RoundedRectangle(cornerRadius: Tokens.cornerRadius - 4))
+                .background(tileColor.opacity(0.15), in: RoundedRectangle(cornerRadius: Tokens.cornerRadius - 4))
             VStack(alignment: .leading) {
                 Text(entry.room.name)
                 Text("^[\(entry.containerCount) container](inflect: true)")
