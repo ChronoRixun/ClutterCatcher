@@ -101,11 +101,17 @@ struct Theme: Identifiable, Equatable, Sendable {
     /// A color that follows the system light/dark setting (T4 — appearance is
     /// respected, never forced; no `preferredColorScheme` anywhere).
     func color(_ role: Palette.Role) -> Color {
+        Color(uiColor(role))
+    }
+
+    /// The dynamic UIColor behind `color(_:)`, for UIKit-backed surfaces
+    /// (the label preview's PDFView background).
+    func uiColor(_ role: Palette.Role) -> UIColor {
         let lightHex = light.hex(for: role)
         let darkHex = dark.hex(for: role)
-        return Color(UIColor { traits in
+        return UIColor { traits in
             UIColor(srgbHex: traits.userInterfaceStyle == .dark ? darkHex : lightHex)
-        })
+        }
     }
 
     var bg: Color { color(.bg) }

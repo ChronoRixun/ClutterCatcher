@@ -39,6 +39,7 @@ struct FamilyView: View {
                 }
             }
             .navigationTitle("Family")
+            .themedScreen()
         }
         .alert(
             "Sharing Problem",
@@ -88,6 +89,7 @@ struct FamilyView: View {
             } footer: {
                 Text("Everyone you invite can see and edit the whole catalog.")
             }
+            .themedRow()
 
             Section {
                 Button {
@@ -103,6 +105,7 @@ struct FamilyView: View {
                     Text("Sends an invite link through Messages or Mail. You stay the owner of the catalog.")
                 }
             }
+            .themedRow()
         }
         .overlay {
             if isWorking {
@@ -134,6 +137,7 @@ struct FamilyView: View {
                 } footer: {
                     Text("You're a member of this household — everyone shares one catalog.")
                 }
+                .themedRow()
 
                 Section {
                     Button("Leave Household…", role: .destructive) {
@@ -143,6 +147,7 @@ struct FamilyView: View {
                 } footer: {
                     Text("Your device keeps a copy of the catalog, but it stops syncing and your edits stay local.")
                 }
+                .themedRow()
             }
             .confirmationDialog(
                 "Leave this household?",
