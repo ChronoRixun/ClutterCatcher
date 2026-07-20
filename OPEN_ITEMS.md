@@ -705,6 +705,40 @@ dispatch-ready:
   dispatch order is Owen's call under the one-open-milestone rule;
   M7a → M7b is the only fixed ordering.
 
+## 2026-07-20 — Planning: deep-review amendments + M6.2 iPad dispatch (with Owen)
+
+A code-level walk of the feature surface (while M7a was being dispatched)
+found real gaps; Owen ruled on placement:
+
+- **U13 — Category browse (→ M7b).** Categories currently label but can't
+  *find*: search's category results render without a NavigationLink
+  (untappable) and CategoriesView taps open the editor, not the contents.
+  New `Route.category(id:)` browse view (items grouped room → container);
+  also U8's prerequisite — indexed categories need a destination.
+- **U14 — Matched-item highlight (→ M7b).** Item search results land on
+  the container without indicating the match; the container route gains an
+  optional highlight id (scroll-to + brief emphasis). Spotlight/intents
+  reuse it.
+- **M6 scope additions:** destructive-delete confirmations name their
+  blast radius with live counts; accessibility audit (VoiceOver on
+  icon-only controls, Dynamic Type at the largest sizes, themed contrast —
+  Arcade especially). M6 header now reads *partially shipped* (photos
+  Run 4, HEIC/GC M6.1).
+- **M8 preconditions made explicit:** Xcode 27 GM + all four family
+  devices on iOS 27 + the D3 target bump (a one-way door for dev-signed
+  installs). M8 is last by construction.
+- **M6.2 iPad dispatch written:** `planning/m6.2-ipad-kickoff-prompt.md` —
+  `TARGETED_DEVICE_FAMILY 1,2`, size-class-driven layout (sidebarAdaptable
+  tabs, readable widths, popover-anchor audit, themed surfaces at
+  arbitrary widths), and the one sync-adjacent item: the
+  **participant-second-device bootstrap**. Shelley's iPad is a fresh
+  install on an already-participant Apple ID — CKShare acceptance is
+  per-account, so the shared `Household` zone already exists in her shared
+  database, but DL29's join flow only knows the invite-callback path and
+  would wait forever. Fix: on "Join a household", discover the existing
+  shared zone and adopt via the DL33 wipe-and-adopt transaction, no invite
+  needed. Bootstrap code only; zero schema, zero contract change.
+
 ## Questions for Owen
 
 ### Run 6 (M4a)

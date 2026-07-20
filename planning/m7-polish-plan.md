@@ -108,6 +108,24 @@ iOS 26; M8 may later add the drag interaction on top. Not duplication.
   outcome, whichever way Owen rules) and MotionPersonality; Reduce
   Motion honored via the existing seam. Fen does not appear on any new
   surface (presence dial unchanged).
+- **U13 — Category browse (M7b · added 2026-07-20).** Categories are
+  currently a labeling system with no findability payoff: search's
+  category results render without a `NavigationLink` (untappable), and
+  tapping a category in CategoriesView opens the *editor*, not its
+  contents — there is no "show me everything Seasonal" anywhere. New
+  `Route.category(id:)` destination: the category's items grouped
+  room → container, each row navigating to its container (with U14's
+  highlight). CategoriesView row tap goes here; editing moves to a
+  toolbar/swipe affordance (agent's judgment, logged). Search category
+  results become links to it. This is also U8's prerequisite —
+  indexed categories need a deep-link destination.
+- **U14 — Matched-item highlight (M7b · added 2026-07-20).** Item
+  search results navigate to the container without indicating which
+  item matched — in a 40-item bin you scan by eye. The container route
+  gains an optional highlight-item id: navigation scrolls to and
+  briefly emphasizes the matched row (theme-settle animation; plain
+  appearance under Reduce Motion). Search uses it immediately; U8's
+  Spotlight item results and U9's Find intent reuse the same route.
 
 ## 3. Dispatches
 
@@ -135,22 +153,28 @@ copy read right in daily use.
 
 ### M7b — The house that knows *(agent-implementable, family gate)*
 
-Scope: U8–U10, under U11/U12. Precondition: M7a merged.
+Scope: U8–U10 + U13–U14, under U11/U12. Precondition: M7a merged.
+Build order inside the dispatch: U13/U14 first (they're in-app UX and
+U8/U9's link targets), then indexing, intents, and the control.
 
-Tests: searchable-item payload building (name/path/category, thumbnail
-ref resolution); prune-on-delete and clear-on-reset/join logic at the
-seam; intent entity resolution (exact, partial, no-match); zero
-`pending_changes`/`sync_events` from indexing and intents.
+Tests: category-browse grouping query (room → container ordering, empty
+category); highlight-route parsing; searchable-item payload building
+(name/path/category, thumbnail ref resolution); prune-on-delete and
+clear-on-reset/join logic at the seam; intent entity resolution (exact,
+partial, no-match); zero `pending_changes`/`sync_events` from browsing,
+indexing, and intents.
 
-**VERIFY (agent):** build/tests green · sim: Spotlight result for a
-seeded item deep-links to the right container; intent resolves in the
-Shortcuts app.
+**VERIFY (agent):** build/tests green · sim: a category row and a
+category search result both open the browse view; a container opened
+from an item search result lands scrolled-to with the match emphasized;
+Spotlight result for a seeded item deep-links to the right container;
+intent resolves in the Shortcuts app.
 **VERIFY (human — closes M7):** a household member finds a real item
 from the home-screen search **without opening the app first** · Siri
 answers "where are the Christmas lights" with the location · the
-Control Center button opens the scanner at the shed door · index
-survives a sync cycle (edit on one phone, search finds the new name on
-the other).
+Control Center button opens the scanner at the shed door · tapping
+Seasonal shows everything Seasonal, across rooms · index survives a
+sync cycle (edit on one phone, search finds the new name on the other).
 
 ## 4. Non-goals
 
