@@ -40,7 +40,7 @@ enum SharedZoneBootstrap {
 /// A `Household` zone found in this account's shared database: everything
 /// the DL33 wipe-and-adopt needs that acceptance would otherwise have
 /// carried on the accepted share.
-struct DiscoveredHouseholdZone: Sendable {
+struct DiscoveredHouseholdZone: Equatable, Sendable {
     let zoneOwnerName: String
     let roster: [Participant]
 }

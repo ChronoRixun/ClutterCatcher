@@ -67,6 +67,7 @@ struct OnboardingView: View {
         // M6.2: a welcome card, not a 12-inch spread — cap on iPad widths.
         .frame(maxWidth: 480)
         .padding(Tokens.spacingL)
+        .discoveredHouseholdOfferDialog(appModel)
         .alert(
             "Something Went Wrong",
             isPresented: Binding(
@@ -77,6 +78,43 @@ struct OnboardingView: View {
         } message: {
             Text(appModel.onboardingError ?? "")
         }
+    }
+}
+
+/// M7b rider: the seeding guard's interposed question, shared by both
+/// screens that can seed (onboarding's primary button and the waiting
+/// screen's escape hatch). Joining rides the M6.2 discovered-zone machinery;
+/// "anyway" is the pre-rider owner path as a deliberate choice — the guard
+/// warns, it never forbids.
+private struct DiscoveredHouseholdOfferDialog: ViewModifier {
+    @Bindable var appModel: AppModel
+
+    func body(content: Content) -> some View {
+        content.confirmationDialog(
+            "This Apple ID is already in a household — join it instead?",
+            isPresented: Binding(
+                get: { appModel.discoveredHouseholdOffer != nil },
+                set: { if !$0 { appModel.dismissDiscoveredOffer() } }),
+            titleVisibility: .visible
+        ) {
+            Button("Join My Household") {
+                Task { await appModel.joinDiscoveredHousehold() }
+            }
+            Button("Start a Separate Catalog Anyway", role: .destructive) {
+                Task { await appModel.setUpThisHomeAnyway() }
+            }
+            Button("Cancel", role: .cancel) {
+                appModel.dismissDiscoveredOffer()
+            }
+        } message: {
+            Text("This device's Apple ID already belongs to a ClutterCatcher household. Joining connects this device to the family's catalog; starting fresh makes a second, separate one.")
+        }
+    }
+}
+
+extension View {
+    func discoveredHouseholdOfferDialog(_ appModel: AppModel) -> some View {
+        modifier(DiscoveredHouseholdOfferDialog(appModel: appModel))
     }
 }
 
@@ -118,6 +156,9 @@ struct JoinWaitingView: View {
                 isConfirmingOwnerSwitch = true
             }
             .font(.subheadline)
+            // M7b rider: the guard's one discovery check runs first; keep
+            // the escape hatch quiet while it does (≤ its 4 s timeout).
+            .disabled(appModel.isCheckingForHousehold)
             // Anchored to its button so iPad presents a sane popover
             // (M6.2 popover audit).
             .confirmationDialog(
@@ -134,6 +175,7 @@ struct JoinWaitingView: View {
         }
         .frame(maxWidth: 480) // M6.2 — see OnboardingView
         .padding(Tokens.spacingL)
+        .discoveredHouseholdOfferDialog(appModel)
         .task {
             await ShareAcceptanceModel.shared.discoverExistingHousehold()
         }

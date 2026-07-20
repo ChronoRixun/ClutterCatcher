@@ -5,6 +5,10 @@ import UIKit
 /// label lands — including the friendly not-found state for unknown UUIDs.
 struct ContainerDetailView: View {
     let containerID: String
+    /// U14: the matched item to scroll to and briefly emphasize on arrival —
+    /// search results, Spotlight taps, and the Find intent set it; plain
+    /// navigation leaves it nil.
+    var highlightItemID: String? = nil
 
     @Environment(\.appDatabase) private var appDatabase
     @Environment(\.photoStore) private var photoStore
@@ -20,6 +24,11 @@ struct ContainerDetailView: View {
     @State private var isEditingContainer = false
     @State private var isPrintingLabel = false
     @State private var isConfirmingDelete = false
+    // U14 highlight state lives on the screen, not the row — container rows
+    // get recreated around list updates (the DL62 lesson), and a row-local
+    // flag would die mid-emphasis.
+    @State private var highlightedItemID: String?
+    @State private var highlightRan = false
 
     private var containerRepository: ContainerRepository { ContainerRepository(database: appDatabase) }
     private var itemRepository: ItemRepository { ItemRepository(database: appDatabase) }
@@ -112,6 +121,15 @@ struct ContainerDetailView: View {
     }
 
     private func contentList(_ detail: ContainerDetail) -> some View {
+        ScrollViewReader { proxy in
+            innerList(detail)
+                .task(id: detail.items.isEmpty) {
+                    await runHighlightIfNeeded(proxy: proxy, detail: detail)
+                }
+        }
+    }
+
+    private func innerList(_ detail: ContainerDetail) -> some View {
         List {
             // §4: room and item count as chips under the title.
             Section {
@@ -145,6 +163,7 @@ struct ContainerDetailView: View {
                 if detail.items.isEmpty {
                     Text("Nothing catalogued in here yet.")
                         .foregroundStyle(.secondary)
+                        .themedRow()
                 } else {
                     ForEach(detail.items) { entry in
                         Button {
@@ -153,6 +172,10 @@ struct ContainerDetailView: View {
                             ItemRow(entry: entry)
                         }
                         .buttonStyle(.plain)
+                        // U14: the row backgrounds in this section resolve
+                        // through one helper so the matched row's emphasis
+                        // can override the themed surface deterministically.
+                        .listRowBackground(insideRowBackground(entry))
                         // §6 save reward: Pop!'s saved row drops in with a
                         // squash-settle; everyone else keeps the standard
                         // row insertion under their own settle spring.
@@ -177,7 +200,6 @@ struct ContainerDetailView: View {
                     }
                 }
             }
-            .themedRow()
 
             Section("QR Label") {
                 QRLabelPreview(container: detail.container)
@@ -196,6 +218,40 @@ struct ContainerDetailView: View {
     private var itemListAnimation: Animation? {
         guard themeStore.theme.motion.settle != nil else { return nil }
         return themeStore.theme.motion.animation(.settle, reduceMotion: reduceMotion)
+    }
+
+    // MARK: U14 — matched-item highlight
+
+    /// The Inside section's row surface: the matched row wears the theme's
+    /// accent wash while emphasized; everything else keeps the themedRow()
+    /// treatment (Classic's nil = the untouched system surface).
+    private func insideRowBackground(_ entry: ItemListEntry) -> Color? {
+        if entry.id == highlightedItemID {
+            return themeStore.theme.accent.opacity(0.25)
+        }
+        return themeStore.theme.isClassic ? nil : themeStore.theme.surface
+    }
+
+    /// One shot per screen presentation: scroll to the matched row, hold the
+    /// emphasis briefly, then let it settle away on the theme's spring (the
+    /// plain fade under Reduce Motion — the existing DL60 seam).
+    @MainActor
+    private func runHighlightIfNeeded(proxy: ScrollViewProxy, detail: ContainerDetail) async {
+        guard !highlightRan,
+              let target = highlightItemID,
+              detail.items.contains(where: { $0.id == target }) else { return }
+        highlightRan = true
+        highlightedItemID = target
+        let settle = themeStore.theme.motion.animation(.settle, reduceMotion: reduceMotion)
+        // Let the freshly pushed list finish layout before jumping.
+        try? await Task.sleep(for: .milliseconds(300))
+        withAnimation(settle) {
+            proxy.scrollTo(target, anchor: .center)
+        }
+        try? await Task.sleep(for: .milliseconds(1800))
+        withAnimation(settle) {
+            highlightedItemID = nil
+        }
     }
 }
 

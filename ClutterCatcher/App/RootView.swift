@@ -1,3 +1,4 @@
+import CoreSpotlight
 import SwiftUI
 
 struct RootView: View {
@@ -60,6 +61,16 @@ struct RootView: View {
             if acceptance.phase == .joining {
                 JoiningOverlay()
             }
+        }
+        // U8: a tapped Spotlight result. Its identifier IS its deep link, so
+        // this is the same DL5 stack-replacing path a QR scan takes (with
+        // U14's highlight riding the item results' query string).
+        .onContinueUserActivity(CSSearchableItemActionType) { activity in
+            guard let identifier = activity.userInfo?[CSSearchableItemActivityIdentifier] as? String,
+                  let url = URL(string: identifier) else {
+                return
+            }
+            router.open(url: url)
         }
     }
 
@@ -146,8 +157,10 @@ extension View {
             switch route {
             case .room(let id):
                 RoomDetailView(roomID: id)
-            case .container(let id):
-                ContainerDetailView(containerID: id)
+            case .container(let id, let highlightItemID):
+                ContainerDetailView(containerID: id, highlightItemID: highlightItemID)
+            case .category(let id):
+                CategoryBrowseView(categoryID: id)
             }
         }
     }

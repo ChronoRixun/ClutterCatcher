@@ -27,10 +27,11 @@ struct CategoriesView: View {
                 }
             } else {
                 List {
+                    // U13: tapping a category shows its contents — the browse
+                    // view. Editing moved to the swipe affordance below (the
+                    // old tap target), same swipe-only delete as before.
                     ForEach(entries) { entry in
-                        Button {
-                            editingCategory = entry.category
-                        } label: {
+                        NavigationLink(value: Route.category(id: entry.category.id)) {
                             HStack(spacing: Tokens.spacingM) {
                                 Circle()
                                     .fill(Tokens.categoryColor(for: entry.category.colorToken))
@@ -41,18 +42,26 @@ struct CategoriesView: View {
                                     .font(.subheadline)
                                     .foregroundStyle(.secondary)
                             }
-                            .contentShape(Rectangle())
                         }
-                        .buttonStyle(.plain)
-                    }
-                    .onDelete { offsets in
-                        let ids = offsets.map { entries[$0].category.id }
-                        Task {
-                            do {
-                                try await repository.deleteCategories(ids: ids)
-                            } catch {
-                                Log.data.error("Category delete failed: \(String(describing: error))")
+                        .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                            Button(role: .destructive) {
+                                let ids = [entry.category.id]
+                                Task {
+                                    do {
+                                        try await repository.deleteCategories(ids: ids)
+                                    } catch {
+                                        Log.data.error("Category delete failed: \(String(describing: error))")
+                                    }
+                                }
+                            } label: {
+                                Label("Delete", systemImage: "trash")
                             }
+                            Button {
+                                editingCategory = entry.category
+                            } label: {
+                                Label("Edit", systemImage: "pencil")
+                            }
+                            .tint(.orange)
                         }
                     }
                     .themedRow()
