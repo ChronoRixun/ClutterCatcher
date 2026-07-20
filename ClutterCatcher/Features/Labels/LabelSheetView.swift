@@ -41,6 +41,7 @@ struct LabelSheetView: View {
                     .pickerStyle(.inline)
                     .labelsHidden()
                 }
+                .themedRow()
 
                 Section {
                     Stepper(value: $startPosition, in: 1...spec.cellsPerPage) {
@@ -49,6 +50,7 @@ struct LabelSheetView: View {
                 } footer: {
                     Text("Skips already-used stickers on a partially-used sheet.")
                 }
+                .themedRow()
 
                 Section {
                     if candidates.isEmpty {
@@ -84,9 +86,11 @@ struct LabelSheetView: View {
                         Text("^[\(selectedIDs.count) label](inflect: true) on ^[\(spec.pageCount(forLabelCount: selectedIDs.count, startingAt: startPosition - 1)) sheet](inflect: true).")
                     }
                 }
+                .themedRow()
             }
             .navigationTitle("Print Labels")
             .navigationBarTitleDisplayMode(.inline)
+            .themedScreen()
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Done") { dismiss() }
@@ -188,14 +192,21 @@ struct GeneratedLabelPDF: Identifiable {
 }
 
 /// Full-screen preview of the generated sheet with Print and Share.
+/// The *page* stays white in every theme — labels print on white sticker
+/// stock — while the desk behind it takes the theme background, so the
+/// preview reads as a white sheet on a themed desk.
 struct LabelPDFPreviewView: View {
     let generated: GeneratedLabelPDF
 
     @Environment(\.dismiss) private var dismiss
+    @Environment(ThemeStore.self) private var themeStore
 
     var body: some View {
+        let theme = themeStore.theme
         NavigationStack {
-            PDFViewRepresentable(data: generated.data)
+            PDFViewRepresentable(
+                data: generated.data,
+                deskColor: theme.isClassic ? nil : theme.uiColor(.bg))
                 .ignoresSafeArea(edges: .bottom)
                 .navigationTitle("Label Sheet")
                 .navigationBarTitleDisplayMode(.inline)
@@ -226,16 +237,23 @@ struct LabelPDFPreviewView: View {
 
 private struct PDFViewRepresentable: UIViewRepresentable {
     let data: Data
+    /// Background behind the rendered page. nil (Classic) leaves PDFView's
+    /// default — the structural no-op.
+    let deskColor: UIColor?
 
     func makeUIView(context: Context) -> PDFView {
         let view = PDFView()
         view.autoScales = true
         view.document = PDFDocument(data: data)
+        if let deskColor {
+            view.backgroundColor = deskColor
+        }
         return view
     }
 
     func updateUIView(_ view: PDFView, context: Context) {
         // `data` is immutable for the lifetime of the preview sheet; the
-        // document set in makeUIView stays current.
+        // document set in makeUIView stays current, and the theme can't
+        // change while this sheet is up (the picker lives in Settings).
     }
 }

@@ -22,11 +22,13 @@ struct SyncActivityView: View {
             } else {
                 List(events) { event in
                     SyncEventRow(event: event)
+                        .themedRow()
                 }
             }
         }
         .navigationTitle("Sync Activity")
         .navigationBarTitleDisplayMode(.inline)
+        .themedScreen()
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
                 Button("Clear") {

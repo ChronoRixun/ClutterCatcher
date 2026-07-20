@@ -55,11 +55,13 @@ struct CategoriesView: View {
                             }
                         }
                     }
+                    .themedRow()
                 }
             }
         }
         .navigationTitle("Categories")
         .navigationBarTitleDisplayMode(.inline)
+        .themedScreen()
         .toolbar {
             ToolbarItem(placement: .cancellationAction) {
                 Button("Done") { dismiss() }
