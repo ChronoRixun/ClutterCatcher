@@ -14,7 +14,7 @@ ClutterCatcher is a QR-code home organization app for one household of four (Owe
 |---|----------|
 | D1 | Clean start. No migration from CCv3. No legacy printed labels to honor. |
 | D2 | Native SwiftUI. Swift 6.x, strict concurrency. No React Native, no Expo. |
-| D3 | **Deployment target iOS 26.0.** API surface stays ≤ iOS 26 until M7. |
+| D3 | **Deployment target iOS 26.0.** API surface stays ≤ iOS 26 until M8. |
 | D4 | Daily dev toolchain: Xcode 27 beta (Owen's phone is on iOS 27 db3). Stable Xcode 26 stays installed for sanity-check builds and any future TestFlight upload. `DEVELOPER_DIR` selects toolchain for CLI builds. |
 | D5 | Project generated from `project.yml` via **XcodeGen** (source of truth; regenerate when files are added/removed). |
 | D6 | Local store: **SQLite via GRDB** (SPM). Live UI updates via GRDB `ValueObservation`. |
@@ -109,10 +109,14 @@ Two more invites; 4-participant roster; per-device install ritual documented in 
 **VERIFY:** all four devices converge on the same catalog; each member's edits attributed correctly.
 
 ### M6 — Hardening *(mixed)*
-Sync status UI; error surfaces; JSON export/backup; ~~item photos (CKAsset)~~ *(shipped early: Run 4 + M6.1; empty-state/Fen polish moved to M4)*; App Intents + Core Spotlight indexing of items (**iOS 26-capable** — "where are the Christmas lights" from system search); iPad support (`TARGETED_DEVICE_FAMILY = 1,2` + layout pass; target device: Shelley's iPad, iPadOS 27 beta — runs an iOS 26-target app fine); optional TestFlight migration post-GM (data already in Production per D15, so it's seamless).
-**VERIFY:** export/reimport round-trip; Spotlight finds a known item; family still syncing after 2 weeks.
+Sync status UI; error surfaces; JSON export/backup; ~~item photos (CKAsset)~~ *(shipped early: Run 4 + M6.1; empty-state/Fen polish moved to M4)*; ~~App Intents + Core Spotlight~~ *(moved to M7)*; iPad support (`TARGETED_DEVICE_FAMILY = 1,2` + layout pass; target device: Shelley's iPad, iPadOS 27 beta — runs an iOS 26-target app fine); optional TestFlight migration post-GM (data already in Production per D15, so it's seamless).
+**VERIFY:** export/reimport round-trip; family still syncing after 2 weeks.
 
-### M7 — iOS 27 harvest *(parking lot, after family updates in fall)*
+### M7 — Polish & The House That Knows *(mixed · added 2026-07-19)*
+Full sub-plan: **`planning/m7-polish-plan.md`** (decisions U1–U12). Two dispatches: **M7a** in-app UX polish (scanner torch toggle, move-item-between-containers, post-create label nudge, Rooms subtitle thresholds, household-English scan copy, empty-room row treatment, room icon picker, `cluttercatcher://scan` route) and **M7b** system integration (**iOS 26-capable**: Core Spotlight indexing of containers/items, App Intents + Siri — "where are the Christmas lights" answered from the home screen — and a Control Center scan control). Zero schema; U2/U7 are ordinary tracked writes; everything else is local. No hard dependency on M5/M6 — dispatch order is Owen's call under the one-open-milestone rule; M7a → M7b is the only fixed ordering.
+**VERIFY (closes M7):** a household member finds a real item from system search without opening the app first; Siri answers a "where is" question; the Control Center button opens the scanner; the index survives a sync cycle.
+
+### M8 — iOS 27 harvest *(parking lot, after family updates in fall; was M7)*
 Reorderable List containers (drag items between containers); App Intents `SyncableEntity` + Siri semantic search; Foundation Models with image prompts + Vision barcode/OCR tools → "photograph the open bin, get a suggested item list."
 
 ## 5. Claude Code run strategy

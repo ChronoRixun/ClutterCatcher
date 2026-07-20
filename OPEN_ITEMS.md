@@ -681,6 +681,30 @@ unchanged (touch-list only) and the question stands.
   trivial — every animation already resolves through the `reduceMotion:`
   seam, so an app flag just ORs in. Not built on speculation.
 
+## 2026-07-19 — Planning: M7 "Polish & The House That Knows" (with Owen)
+
+Born from the post-M4b polish review. New milestone, spec'd and
+dispatch-ready:
+
+- **Spec:** `planning/m7-polish-plan.md` (decisions **U1–U12**). Two
+  dispatches: **M7a** in-app polish (scanner torch, item move-to-container,
+  post-create label nudge, Rooms subtitle thresholds, household-English
+  scan copy, empty-room rows, room icon picker, `cluttercatcher://scan`
+  route) and **M7b** system integration (Core Spotlight, App Intents +
+  Siri, Control Center scan control — all iOS 26-capable).
+- **Kickoff:** `planning/m7a-kickoff-prompt.md` (M7b's follows its gate).
+- **Renumbering:** old M7 "iOS 27 harvest" → **M8**; D3's API ceiling now
+  reads "until M8"; App Intents + Spotlight pulled out of M6's scope into
+  M7. M8's drag-items interaction is the gestural layer over U2's
+  functional move — kept, not duplicated.
+- **Zero schema anywhere in M7**: U2 (`container_id`) and U7 (`rooms.icon`,
+  already seeded and live in Production) are ordinary tracked writes;
+  Spotlight's index is derived, rebuildable local state fed from both
+  write-path commit points without touching the DL20 types.
+- **Sequencing:** no hard dependency on M5/M6 in either direction —
+  dispatch order is Owen's call under the one-open-milestone rule;
+  M7a → M7b is the only fixed ordering.
+
 ## Questions for Owen
 
 ### Run 6 (M4a)
