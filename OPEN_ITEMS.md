@@ -1064,19 +1064,19 @@ found real gaps; Owen ruled on placement:
 
 ### Run 10 (M6.2)
 
-1. **Should "Set Up This Home (Instead)" check for a discoverable household
-   first?** The DL82 incident shows the footgun: on a second device whose
-   iCloud session is still warming up, the waiting screen's escape hatch
-   can seed a junk owner catalog, and DL29-by-design offers no way back
-   short of a reinstall. A guard would run one discovery before
-   `becomeOwner` and — when a `Household` zone exists in the account's
-   shared database — either warn harder or re-route into the join. Cost: a
-   network round-trip (with a timeout) on a path that must also work
-   offline for the genuine first owner. Interim (most reversible): shipped
-   copy on the waiting screen says second devices connect automatically;
-   discovery re-runs on every foreground, so the stranding window is the
-   discovery latency itself. Owen's call whether the guard is worth the
-   offline-path complexity.
+1. ~~**Should "Set Up This Home (Instead)" check for a discoverable household
+   first?**~~ **Resolved (Owen, 2026-07-20): yes — build the guard.** Run
+   one discovery (with a timeout) before `becomeOwner`; when a `Household`
+   zone exists in the account's shared database, interpose "This Apple ID
+   is already in a household — join it instead?" and re-route into the
+   join. On timeout/offline, the genuine-first-owner path proceeds as
+   today (the guard must never strand a real owner without a network).
+   **Rides the M7b kickoff as a one-item rider** rather than its own run.
+   Owen's field report corroborates DL82: the first onboarding attempt on
+   the second device was "weird" (the warming-iCloud window); the second
+   attempt joined smoothly — the guard closes the one dangerous edge of
+   that window, and the shipped waiting-screen copy + foreground re-runs
+   already soften the rest.
 
 ### Run 6 (M4a)
 
