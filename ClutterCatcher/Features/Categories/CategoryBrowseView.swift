@@ -39,7 +39,13 @@ struct CategoryBrowseView: View {
         .navigationTitle(browse?.category.name ?? "Category")
         .navigationBarTitleDisplayMode(.large)
         .themedScreen()
-        .task {
+        // Keyed to the category — same stack-replace identity rule as the
+        // other catalog destinations (see catalogDestinations note).
+        .task(id: categoryID) {
+            if browseLoaded {
+                browse = nil
+                browseLoaded = false
+            }
             do {
                 for try await value in repository.observeBrowse(categoryID: categoryID) {
                     browse = value

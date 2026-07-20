@@ -28,7 +28,6 @@ struct ContainerDetailView: View {
     // get recreated around list updates (the DL62 lesson), and a row-local
     // flag would die mid-emphasis.
     @State private var highlightedItemID: String?
-    @State private var highlightRan = false
 
     private var containerRepository: ContainerRepository { ContainerRepository(database: appDatabase) }
     private var itemRepository: ItemRepository { ItemRepository(database: appDatabase) }
@@ -102,7 +101,15 @@ struct ContainerDetailView: View {
                 }
             }
         }
-        .task {
+        // Keyed to the container: a stack-replace that swaps this screen's
+        // route re-runs the observation for the new container instead of
+        // silently keeping the old one's (see catalogDestinations note).
+        .task(id: containerID) {
+            if detailLoaded {
+                detail = nil
+                detailLoaded = false
+                highlightedItemID = nil
+            }
             do {
                 for try await value in containerRepository.observeDetail(containerID: containerID) {
                     let hadDetail = detail != nil
@@ -123,7 +130,10 @@ struct ContainerDetailView: View {
     private func contentList(_ detail: ContainerDetail) -> some View {
         ScrollViewReader { proxy in
             innerList(detail)
-                .task(id: detail.items.isEmpty) {
+                // Runs when this list first appears with content, and again
+                // if a same-container stack-replace changes only the
+                // highlight target.
+                .task(id: highlightItemID) {
                     await runHighlightIfNeeded(proxy: proxy, detail: detail)
                 }
         }
@@ -232,23 +242,25 @@ struct ContainerDetailView: View {
         return themeStore.theme.isClassic ? nil : themeStore.theme.surface
     }
 
-    /// One shot per screen presentation: scroll to the matched row, hold the
-    /// emphasis briefly, then let it settle away on the theme's spring (the
-    /// plain fade under Reduce Motion — the existing DL60 seam).
+    /// One shot per presentation of a target: scroll to the matched row,
+    /// hold the emphasis briefly, then let it settle away on the theme's
+    /// spring (the plain fade under Reduce Motion — the existing DL60 seam).
     @MainActor
     private func runHighlightIfNeeded(proxy: ScrollViewProxy, detail: ContainerDetail) async {
-        guard !highlightRan,
-              let target = highlightItemID,
+        guard let target = highlightItemID,
               detail.items.contains(where: { $0.id == target }) else { return }
-        highlightRan = true
         highlightedItemID = target
         let settle = themeStore.theme.motion.animation(.settle, reduceMotion: reduceMotion)
-        // Let the freshly pushed list finish layout before jumping.
+        // Let the freshly pushed list finish layout before jumping. A
+        // cancelled task (screen left mid-emphasis) stops instead of
+        // fast-forwarding through the choreography.
         try? await Task.sleep(for: .milliseconds(300))
+        guard !Task.isCancelled else { return }
         withAnimation(settle) {
             proxy.scrollTo(target, anchor: .center)
         }
         try? await Task.sleep(for: .milliseconds(1800))
+        guard !Task.isCancelled else { return }
         withAnimation(settle) {
             highlightedItemID = nil
         }

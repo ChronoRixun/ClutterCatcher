@@ -152,6 +152,16 @@ private struct JoiningOverlay: View {
 /// The shared destination table for catalog routes. Every `NavigationStack`
 /// that can show rooms/containers applies this once.
 extension View {
+    // NOTE (M7b): a DL5 stack-replace can swap one route for another at the
+    // same stack position, which KEEPS the destination view's structural
+    // identity — plain `.task {}` observations and @State silently survive
+    // into the new route and the screen keeps showing the old destination.
+    // (Found in the M7b walkthrough: two successive item deep links; latent
+    // on main for Camera-scan-while-on-a-container.) The destination views
+    // therefore key their observation tasks to their entity id
+    // (`.task(id:)`) and reset their loaded state when it changes. An
+    // `.id(route)` here would be the cleaner fix, but it segfaults the
+    // iOS 26.5 sim runtime's metadata instantiation (the DL62 family).
     func catalogDestinations() -> some View {
         navigationDestination(for: Route.self) { route in
             switch route {
