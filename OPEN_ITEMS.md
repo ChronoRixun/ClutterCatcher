@@ -1220,16 +1220,14 @@ found real gaps; Owen ruled on placement:
 
 ### Run 11 (M7b)
 
-1. **Should categories be Spotlight-indexed too?** The M7 plan's summary
-   line says "containers/items/categories" but U8's decision text names
-   containers and items only — Run 11 shipped U8's letter (DL88). Interim
-   answer (most reversible): **not indexed** — a category is still
-   findable in system search through its items (the category name rides
-   every item entry's keywords: searching "Seasonal" surfaces the Seasonal
-   items), and the browse view is one tap in-app. Indexing categories
-   directly would need a category deep-link URL form (`Route.category`
-   is in-app-only today) — a small, self-contained addition if the
-   family's muscle memory turns out to be "search the category name."
+1. **Should categories be Spotlight-indexed too?** **Owen's ruling
+   (2026-07-20): deliberately parked — let the soak decide.** The interim
+   stands (not indexed; category names ride every item's keywords, so
+   "Seasonal" still surfaces the Seasonal items from the home screen).
+   Decision rule: if the family's observed muscle memory during the
+   week-long soak turns out to be "search the category name, expect the
+   category," build the small addition (category deep-link URL form +
+   index entries). Revisit at M4/M7 gate review with real usage in hand.
 
 ### Run 10 (M6.2)
 
