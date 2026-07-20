@@ -82,10 +82,11 @@ enum ParticipantBootstrap {
     }
 }
 
-/// Receives share invites from the scene delegate, runs the decision table,
-/// asks for confirmation when the catalog has real data, then performs the
-/// accept → wipe → role-adopt → hydrate sequence. RootView renders its
-/// phases (dialog, progress, failure).
+/// Receives share invites from the scene delegate — and, since M6.2,
+/// discovers already-accepted shared zones for second devices — runs the
+/// decision table, asks for confirmation when the catalog has real data,
+/// then performs the (accept →) wipe → role-adopt → hydrate sequence.
+/// RootView renders its phases (dialog, progress, failure).
 @MainActor @Observable final class ShareAcceptanceModel {
     static let shared = ShareAcceptanceModel()
 
@@ -98,15 +99,27 @@ enum ParticipantBootstrap {
         case failed(message: String)
     }
 
+    /// Where a pending join came from (M6.2): an invite carries metadata to
+    /// accept server-side first; a discovered zone was accepted by this
+    /// Apple ID long ago and has nothing left to accept.
+    private enum PendingJoin {
+        case invite(CKShare.Metadata)
+        case discoveredZone(DiscoveredHouseholdZone)
+    }
+
     private(set) var phase: Phase = .idle
 
     private var database: AppDatabase?
     private var coordinator: SyncCoordinator?
     private var onRoleAdopted: ((SyncRole) -> Void)?
-    private var pendingMetadata: CKShare.Metadata?
+    private var pendingJoin: PendingJoin?
     /// Invites that arrived before the app finished bootstrapping (cold
     /// launches straight from an invite link).
     private var buffered: [CKShare.Metadata] = []
+    /// A discovery request that arrived before `configure` — a cold launch
+    /// straight into the waiting screen runs the child view's task before
+    /// the root's configure task (M6.2).
+    private var wantsDiscovery = false
 
     func configure(
         database: AppDatabase,
@@ -121,6 +134,10 @@ enum ParticipantBootstrap {
         for metadata in queued {
             receive(metadata)
         }
+        if wantsDiscovery {
+            wantsDiscovery = false
+            Task { await discoverExistingHousehold() }
+        }
     }
 
     /// Entry point from the scene delegate (and cold-launch connection
@@ -134,7 +151,8 @@ enum ParticipantBootstrap {
             Log.sync.info("Ignoring share invite while a join is in progress")
             return
         }
-        pendingMetadata = metadata
+        // An explicit invite outranks a discovered zone awaiting confirmation.
+        pendingJoin = .invite(metadata)
         Task {
             do {
                 let disposition = try await database.writer.read { db in
@@ -153,6 +171,50 @@ enum ParticipantBootstrap {
         }
     }
 
+    /// M6.2 §3 — the second-device path, run from the join-waiting screen.
+    /// If this account's shared database already holds the `Household` zone
+    /// (acceptance is per-Apple-ID; a fresh install on a participant account
+    /// starts this way), join through the same decision table and phases as
+    /// an invite. Quiet no-op when the zone is absent or iCloud is
+    /// unreachable — the invite-waiting flow stands.
+    func discoverExistingHousehold() async {
+        guard let database else {
+            wantsDiscovery = true // configure() re-runs this
+            return
+        }
+        guard phase == .idle, pendingJoin == nil else { return }
+        let discovered: DiscoveredHouseholdZone?
+        do {
+            discovered = try await SharedZoneDiscovery.discoverHouseholdZone(
+                in: CKContainer(identifier: Self.containerIdentifier))
+        } catch {
+            Log.sync.info("Shared-zone discovery skipped: \(String(describing: error))")
+            return
+        }
+        guard let discovered else { return } // .waitForInvite
+        do {
+            let disposition = try await database.writer.read { db in
+                try AcceptanceGuard.disposition(db)
+            }
+            // A join that started while we were querying wins; don't stomp it.
+            guard phase == .idle, pendingJoin == nil else { return }
+            switch SharedZoneBootstrap.outcome(
+                zoneDiscovered: true, disposition: disposition) {
+            case .adopt:
+                pendingJoin = .discoveredZone(discovered)
+                await performJoin()
+            case .confirmBeforeAdopt:
+                pendingJoin = .discoveredZone(discovered)
+                phase = .confirming
+            case .waitForInvite:
+                break
+            }
+        } catch {
+            Log.sync.error("Discovery guard failed: \(String(describing: error))")
+            phase = .failed(message: "Couldn't read this device's catalog state.")
+        }
+    }
+
     /// The dialog's "Join and Replace" action.
     func confirmJoin() {
         Task { await performJoin() }
@@ -161,7 +223,7 @@ enum ParticipantBootstrap {
     /// The dialog's cancel: nothing changed; the device keeps its catalog
     /// and role.
     func cancelJoin() {
-        pendingMetadata = nil
+        pendingJoin = nil
         phase = .idle
     }
 
@@ -169,30 +231,47 @@ enum ParticipantBootstrap {
         phase = .idle
     }
 
+    private static let containerIdentifier = "iCloud.com.rixun.cluttercatcher"
+
     private func performJoin() async {
-        guard let metadata = pendingMetadata, let database, let coordinator else { return }
+        guard let pendingJoin, let database, let coordinator else { return }
         phase = .joining
         do {
-            // CKContainer.accept wraps CKAcceptSharesOperation (plan §3.3);
-            // accept first — if it fails, nothing local has changed.
-            let ckContainer = CKContainer(identifier: metadata.containerIdentifier)
-            let share = try await ckContainer.accept(metadata)
-            let zoneOwnerName = share.recordID.zoneID.ownerName
-            let roster = HouseholdShare.roster(from: share)
+            let zoneOwnerName: String
+            let roster: [Participant]
+            switch pendingJoin {
+            case .invite(let metadata):
+                // CKContainer.accept wraps CKAcceptSharesOperation (plan
+                // §3.3); accept first — if it fails, nothing local changed.
+                let ckContainer = CKContainer(identifier: metadata.containerIdentifier)
+                let share = try await ckContainer.accept(metadata)
+                zoneOwnerName = share.recordID.zoneID.ownerName
+                roster = HouseholdShare.roster(from: share)
+            case .discoveredZone(let discovered):
+                // Nothing to accept — this Apple ID accepted long ago; the
+                // zone is already sitting in its shared database (M6.2 §3).
+                zoneOwnerName = discovered.zoneOwnerName
+                roster = discovered.roster
+            }
             try await database.writer.write { db in
                 try ParticipantBootstrap.wipeAndAdopt(
                     db, zoneOwnerName: zoneOwnerName, roster: roster)
             }
-            pendingMetadata = nil
+            self.pendingJoin = nil
             await coordinator.roleDidChange() // starts the shared-DB engine
             onRoleAdopted?(.participant(zoneOwnerName: zoneOwnerName))
             phase = .idle
             Log.sync.info("Joined household (zone owner \(zoneOwnerName))")
         } catch {
-            Log.sync.error("Share acceptance failed: \(String(describing: error))")
-            pendingMetadata = nil
-            phase = .failed(
-                message: "Joining the household didn't work — ask for a fresh invite and try again.")
+            Log.sync.error("Join failed: \(String(describing: error))")
+            let wasInvite: Bool = {
+                if case .invite = pendingJoin { return true }
+                return false
+            }()
+            self.pendingJoin = nil
+            phase = .failed(message: wasInvite
+                ? "Joining the household didn't work — ask for a fresh invite and try again."
+                : "Joining the household didn't work — check that iCloud is reachable and try again.")
         }
     }
 }

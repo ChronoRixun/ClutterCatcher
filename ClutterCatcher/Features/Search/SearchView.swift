@@ -40,6 +40,7 @@ struct SearchView: View {
                     resultsList
                 }
             }
+            .readableContentWidth() // M6.2
             .navigationTitle("Search")
             .themedScreen()
             .catalogDestinations()

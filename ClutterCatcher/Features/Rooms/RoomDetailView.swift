@@ -35,6 +35,7 @@ struct RoomDetailView: View {
                 ProgressView()
             }
         }
+        .readableContentWidth() // M6.2
         .navigationTitle(room?.name ?? "Room")
         .navigationBarTitleDisplayMode(.large)
         .themedScreen()

@@ -34,6 +34,7 @@ struct ContainerDetailView: View {
                 ProgressView()
             }
         }
+        .readableContentWidth() // M6.2
         .navigationTitle(detail?.container.name ?? "Container")
         .navigationBarTitleDisplayMode(.large)
         .themedScreen()

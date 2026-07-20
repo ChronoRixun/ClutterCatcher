@@ -82,6 +82,9 @@ struct RootView: View {
                 SettingsView()
             }
         }
+        // M6.2: iPad gets the native sidebar/top-bar tab treatment; iPhone
+        // renders exactly the bottom tab bar it always had.
+        .tabViewStyle(.sidebarAdaptable)
         .safeAreaInset(edge: .top, spacing: 0) {
             // Persistent participant-degradation banner (M3-E): sync is off,
             // the catalog is safe locally, Family has the way back in.

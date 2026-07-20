@@ -76,6 +76,8 @@ struct ContainerEditorView: View {
                 }
             }
         }
+        // M6.2: form-sheet sizing on iPad (see RoomEditorView).
+        .presentationSizing(.form)
     }
 
     private func save() {

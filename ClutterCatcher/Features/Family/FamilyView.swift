@@ -38,6 +38,7 @@ struct FamilyView: View {
                     ProgressView()
                 }
             }
+            .readableContentWidth() // M6.2
             .navigationTitle("Family")
             .themedScreen()
         }
@@ -144,21 +145,23 @@ struct FamilyView: View {
                         isConfirmingLeave = true
                     }
                     .disabled(isWorking)
+                    // Anchored to its row so iPad presents a sane popover
+                    // (M6.2 popover audit).
+                    .confirmationDialog(
+                        "Leave this household?",
+                        isPresented: $isConfirmingLeave,
+                        titleVisibility: .visible
+                    ) {
+                        Button("Leave Household", role: .destructive) {
+                            leaveHousehold()
+                        }
+                    } message: {
+                        Text("This device keeps its current copy of the catalog but stops syncing.")
+                    }
                 } footer: {
                     Text("Your device keeps a copy of the catalog, but it stops syncing and your edits stay local.")
                 }
                 .themedRow()
-            }
-            .confirmationDialog(
-                "Leave this household?",
-                isPresented: $isConfirmingLeave,
-                titleVisibility: .visible
-            ) {
-                Button("Leave Household", role: .destructive) {
-                    leaveHousehold()
-                }
-            } message: {
-                Text("This device keeps its current copy of the catalog but stops syncing.")
             }
         }
     }

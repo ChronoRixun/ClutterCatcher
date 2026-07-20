@@ -48,6 +48,9 @@ struct RoomEditorView: View {
             }
             .saveErrorAlert($saveError)
         }
+        // M6.2: editors present as compact form sheets on iPad; structurally
+        // inert on iPhone, where sheets span the screen regardless of sizing.
+        .presentationSizing(.form)
     }
 
     private func save() {

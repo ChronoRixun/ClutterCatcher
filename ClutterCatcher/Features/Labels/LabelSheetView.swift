@@ -200,6 +200,9 @@ struct LabelPDFPreviewView: View {
 
     @Environment(\.dismiss) private var dismiss
     @Environment(ThemeStore.self) private var themeStore
+    /// Anchor for the iPad print popover (M6.2) — rides behind the Print
+    /// button so the popover points at it.
+    @State private var printAnchor: UIView?
 
     var body: some View {
         let theme = themeStore.theme
@@ -219,9 +222,13 @@ struct LabelPDFPreviewView: View {
                         Button("Print", systemImage: "printer") {
                             printPDF()
                         }
+                        .background(PrintAnchorView(view: $printAnchor))
                     }
                 }
         }
+        // M6.2: the preview finally has room on iPad — page sizing gives the
+        // sheet the big canvas; iPhone sheets are unaffected.
+        .presentationSizing(.page)
     }
 
     private func printPDF() {
@@ -231,8 +238,33 @@ struct LabelPDFPreviewView: View {
         let controller = UIPrintInteractionController.shared
         controller.printInfo = printInfo
         controller.printingItem = generated.data
-        _ = controller.present(animated: true, completionHandler: nil)
+        // iPad presents printing as a popover, which needs a source anchor —
+        // the bare present(animated:) is iPhone-shaped (M6.2 popover audit).
+        // On iPhone the anchored call behaves exactly like the bare one.
+        if let anchor = printAnchor, anchor.window != nil {
+            _ = controller.present(
+                from: anchor.bounds, in: anchor, animated: true, completionHandler: nil)
+        } else {
+            _ = controller.present(animated: true, completionHandler: nil)
+        }
     }
+}
+
+/// An invisible UIKit view whose frame tracks the SwiftUI view it backs —
+/// the popover source `UIPrintInteractionController` needs on iPad.
+private struct PrintAnchorView: UIViewRepresentable {
+    @Binding var view: UIView?
+
+    func makeUIView(context: Context) -> UIView {
+        let anchor = UIView()
+        anchor.isUserInteractionEnabled = false
+        // Defer: assigning @State during view construction is a render-loop
+        // violation (the DL59 family of timing lessons).
+        DispatchQueue.main.async { view = anchor }
+        return anchor
+    }
+
+    func updateUIView(_ uiView: UIView, context: Context) {}
 }
 
 private struct PDFViewRepresentable: UIViewRepresentable {

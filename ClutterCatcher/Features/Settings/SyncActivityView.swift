@@ -26,6 +26,7 @@ struct SyncActivityView: View {
                 }
             }
         }
+        .readableContentWidth() // M6.2
         .navigationTitle("Sync Activity")
         .navigationBarTitleDisplayMode(.inline)
         .themedScreen()

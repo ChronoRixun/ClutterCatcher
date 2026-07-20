@@ -2,6 +2,9 @@
 # Build ClutterCatcher for the iOS Simulator.
 # Honors DEVELOPER_DIR (D4): export DEVELOPER_DIR=/Applications/Xcode-beta.app/Contents/Developer
 # to build with the Xcode 27 beta toolchain; unset for stable Xcode.
+# SIM_NAME/SIM_OS select the destination (M6.2): the iPad family builds with
+#   SIM_NAME="iPad Pro 11-inch (M5)" scripts/build.sh
+# — same pinned OS (DL14), no script fork.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 

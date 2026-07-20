@@ -124,6 +124,25 @@ struct SettingsView: View {
                         isConfirmingReset = true
                     }
                     .disabled(isParticipant)
+                    // Anchored to its row so iPad presents a sane popover
+                    // (M6.2 popover audit).
+                    .confirmationDialog(
+                        "Erase the whole catalog on this device?",
+                        isPresented: $isConfirmingReset,
+                        titleVisibility: .visible
+                    ) {
+                        Button("Erase and Re-seed", role: .destructive) {
+                            Task {
+                                do {
+                                    try await repository.resetCatalogAndReseed()
+                                } catch {
+                                    Log.data.error("Catalog reset failed: \(String(describing: error))")
+                                }
+                            }
+                        }
+                    } message: {
+                        Text("This cannot be undone.")
+                    }
                 } footer: {
                     if isParticipant {
                         Text("Only the household owner can reset the shared catalog.")
@@ -133,27 +152,12 @@ struct SettingsView: View {
                 }
                 .themedRow()
             }
+            // M6.2: readable width in regular width; no-op on compact.
+            .readableContentWidth()
             .navigationTitle("Settings")
             .themedScreen()
             .onAppear {
                 currentIconName = UIApplication.shared.alternateIconName
-            }
-            .confirmationDialog(
-                "Erase the whole catalog on this device?",
-                isPresented: $isConfirmingReset,
-                titleVisibility: .visible
-            ) {
-                Button("Erase and Re-seed", role: .destructive) {
-                    Task {
-                        do {
-                            try await repository.resetCatalogAndReseed()
-                        } catch {
-                            Log.data.error("Catalog reset failed: \(String(describing: error))")
-                        }
-                    }
-                }
-            } message: {
-                Text("This cannot be undone.")
             }
             .task {
                 do {
