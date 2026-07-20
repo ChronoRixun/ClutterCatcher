@@ -769,6 +769,19 @@ sheet treatment per T5).
   screenshot` can trail the UI by a frame or two — sequence automation on
   DB state, not pixels.
 
+### 2026-07-20 — M7a gate closed
+
+- **Owen's on-device pass passed** — built from the branch, no issues on
+  the test run, including the one thing the sim couldn't prove: the torch
+  coexists with the live scanner session (DL72's flagged risk didn't
+  materialize). `feat/polish-m7a` merged to `main` (`--no-ff`, 537346a);
+  the merge also lands the deep-review planning docs (U13/U14, M6/M8
+  amendments, the M6.2 iPad kickoff) that rode the branch base. **M7b
+  ("the house that knows": U8–U10 + U13–U14) is M7's remaining dispatch**
+  — its kickoff gets written at dispatch time. M4's human gate (conflict
+  script + soak + Shelley's sign-off) still runs on wall-clock time in
+  parallel.
+
 ## 2026-07-19 — Planning: M7 "Polish & The House That Knows" (with Owen)
 
 Born from the post-M4b polish review. New milestone, spec'd and
