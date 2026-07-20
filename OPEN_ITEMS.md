@@ -850,6 +850,19 @@ human gate (soak continues; Shelley's sign-off still closes M4).
   DL74's "sequence automation on state, not pixels" caveat but inverted:
   here pixels were the only honest signal available.
 
+### 2026-07-20 — M6.2 merged; gate PARTIALLY closed
+
+- Claude's review passed (bootstrap convergence onto one join path, race
+  guards, scope containment all verified) and **Owen's initial device pass
+  passed — including the dispatch's headline live: a reinstall joined the
+  real household with no invite.** `feat/ipad-m6-2` merged to `main`
+  (`--no-ff`, ac603dc). **Still open to fully close M6.2** (Shelley's
+  iPad): her edits attributing correctly on other devices · independent
+  theme choice · real camera scan + label print from the iPad · Split View
+  next to another app with live sync · the inverted beta rule (her iPad is
+  the beta device). The run's Question for Owen (a discovery guard before
+  "Set Up This Home Instead" seeds) is pending his ruling below.
+
 ### 2026-07-20 — M4c gate closed
 
 - **Owen's on-device pass passed** — Family, Labels, Categories, and Sync
