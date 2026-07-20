@@ -782,6 +782,74 @@ sheet treatment per T5).
   script + soak + Shelley's sign-off) still runs on wall-clock time in
   parallel.
 
+### 2026-07-20 — Run 9 (M4c, themed-surface completion — local Mac, green build)
+
+Slice per `planning/m4c-kickoff-prompt.md`, implementing Owen's DL58
+resolution (theme everything; Onboarding stays system). Zero schema, zero
+sync surface held by construction and by measurement: `Sync/` untouched, no
+migration, no `project.yml` change, and the full sandbox-sim capture session
+(CC-M7a-Sandbox, never the live iPhone 17 sim) ended byte-stable —
+`pending_changes` 27 → 27, `sync_events` 0 → 0, label slots 0 → 0, catalog
+untouched; settings gained only the theme-key flips the captures required
+(receipts in `artifacts/m4c/final-accounting.txt`). Built and tested under
+stable Xcode 26.6 — `scripts/test.sh` green, 207 tests / 23 suites,
+unchanged (view-layer only, as the kickoff expected). Does not disturb M4's
+human gate (soak continues; Shelley's sign-off still closes M4).
+
+- **DL75 — The four screens ride the M4a seams unchanged; the PDF preview
+  desk is the one new seam.** Family, Labels, Categories, and Sync Activity
+  get `themedScreen()`/`themedRow()` exactly like the §8 touch-list screens
+  (Classic short-circuits structurally, T5 sheet chrome stays native). The
+  label preview keeps its white page on a themed desk: the *page* is
+  PDFKit's paper rendering (untouched); the *desk* is
+  `PDFView.backgroundColor`, set through new `Theme.uiColor(_:)` — the same
+  dynamic light/dark `UIColor` bridge `color(_:)` already used (DL54),
+  now exposed for UIKit-backed surfaces — and left at PDFView's default
+  when Classic (nil = the structural no-op extended to UIKit). Verified in
+  Arcade dark (the watch-for: white page, indigo desk) and Cozy light (the
+  harder light case: the page still reads against a cream desk). Editor
+  sheets were checked next to their newly themed parents (category editor
+  over themed CategoriesView, Cozy light): they present full-height with
+  system background + theme tint, identical to every M4a editor — no
+  clash, untouched per the kickoff's judgment rule.
+- **DL76 — Evidence accounting (what "zero deltas" actually measured).**
+  (a) Classic no-op: four screen pairs main (418e097) vs branch, same sim,
+  same navigation, status bar pinned 9:41, compared as uncompressed BMP
+  bytes — every difference is simulator chrome, not app content: Dynamic
+  Island compositing (renders in some frames, not others), Liquid Glass
+  toolbar blur/specular sampling (≤2-value noise for ~90% of differing
+  pixels), one 124×5 px tab-bar blur strip. Zero content-region deltas.
+  (b) The two PDF generates are the label feature's normal DL7 slot
+  assignment — bracketed: DB snapshotted (app terminated), generate +
+  capture, restore; both restores verified 27/0/0. Observed en route:
+  the slot write re-stamped the container's existing queued row
+  (`pending_changes` stayed 27) — the M7a re-stamp behavior again.
+  (c) Navigation sweep, Arcade dark: 21 burst frames across all tab flips
+  and sheet present/dismiss; every frame mean-luminance 39–49/255,
+  near-white ≤0.2% — no flash-of-system-background. (d) Severity colors:
+  sandbox has zero `sync_events`, so the rows were checked numerically —
+  dark-mode ratios ≥3.64 everywhere (Arcade dark, the flagged case, is
+  the *best* case), light-mode yellow/orange/green sit below the 3.0
+  graphics bar *against white surfaces*, i.e. the pre-M4 Classic status
+  quo, unworsened by theming; rows carry text summaries, and the finding
+  feeds M6's accessibility audit. Category dots verified visually on
+  Pop! dark / Arcade dark / Cozy light — legible.
+- **DL77 — Sim-automation field notes (extends DL74).** (a) The xclaude
+  plugin's MCP swipe gesture on this 26.5 sim times out at the tool layer
+  but *executes late*, leaving stuck touch state that silently swallows
+  subsequent toolbar-area taps while row and tab-bar taps keep working —
+  a nasty misdiagnosis trap (it looks like "toolbar buttons are broken").
+  DL74's cure applies: clean shutdown/boot. The `idb` CLI (`idb ui swipe`)
+  completes synchronously and was reliable all session — used for every
+  scroll after the reboot, a deliberate deviation from the plugin skill's
+  MCP-only rule, since the MCP path was demonstrably leaving incomplete
+  touch sequences. (b) The plugin's accessibility describe returned
+  frames without labels and zero elements at nav-bar coordinates on this
+  sim — element-query navigation was unusable; screenshot + visual
+  coordinates (points = pixels/3) was the workable path, consistent with
+  DL74's "sequence automation on state, not pixels" caveat but inverted:
+  here pixels were the only honest signal available.
+
 ## 2026-07-19 — Planning: M7 "Polish & The House That Knows" (with Owen)
 
 Born from the post-M4b polish review. New milestone, spec'd and
