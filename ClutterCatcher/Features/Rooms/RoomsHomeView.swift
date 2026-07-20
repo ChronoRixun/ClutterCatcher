@@ -110,7 +110,9 @@ struct RoomsHomeView: View {
                 LabelSheetView()
             }
             .sheet(isPresented: $isShowingCategories) {
-                NavigationStack { CategoriesView() }
+                // U13: category rows push the browse view (and from there,
+                // containers) inside the sheet's own stack.
+                NavigationStack { CategoriesView().catalogDestinations() }
             }
             .confirmationDialog(
                 deletionTitle,

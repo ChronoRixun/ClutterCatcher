@@ -46,6 +46,10 @@ targets:
     dependencies:
       - package: GRDB
         product: GRDB
+      # M7b (U10): the Control Center scan button rides a minimal WidgetKit
+      # extension, embedded here. It is dependency-free by design.
+      - target: ClutterCatcherControls
+        embed: true
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.rixun.cluttercatcher
@@ -104,6 +108,29 @@ targets:
         # change in lockstep with CLOUDKIT_ENV_PRODUCTION above.
         com.apple.developer.icloud-container-environment: Production
         aps-environment: development
+
+  # M7b (U10): the Control Center scan control. A WidgetKit extension whose
+  # entire content is one ControlWidget button opening cluttercatcher://scan
+  # — no GRDB, no app-code dependency, same team/signing family as the app.
+  ClutterCatcherControls:
+    type: app-extension
+    platform: iOS
+    sources:
+      - path: ClutterCatcherControls
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.rixun.cluttercatcher.controls
+        SKIP_INSTALL: YES
+        TARGETED_DEVICE_FAMILY: "1,2"
+    info:
+      path: ClutterCatcherControls/Info.plist
+      properties:
+        CFBundleDisplayName: ClutterCatcher
+        # Embedded-extension validation requires these to match the app's.
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.widgetkit-extension
 
   ClutterCatcherTests:
     type: bundle.unit-test

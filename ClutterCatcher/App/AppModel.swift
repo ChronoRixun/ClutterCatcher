@@ -1,3 +1,4 @@
+import CloudKit
 import Foundation
 import Observation
 
@@ -10,6 +11,13 @@ import Observation
     private let coordinator: SyncCoordinator
     var bootstrapState: BootstrapState
     var onboardingError: String?
+    /// M7b rider: a household the seeding guard discovered on this Apple ID,
+    /// awaiting the "join it instead?" choice. Both onboarding screens
+    /// present the dialog off this.
+    var discoveredHouseholdOffer: DiscoveredHouseholdZone?
+    /// True while the guard's one discovery check runs (≤ its timeout) —
+    /// the onboarding buttons disable on it.
+    var isCheckingForHousehold = false
 
     init(database: AppDatabase, coordinator: SyncCoordinator, initialState: BootstrapState) {
         self.database = database
@@ -17,8 +25,46 @@ import Observation
         self.bootstrapState = initialState
     }
 
-    /// Onboarding: "Set up this home" — become the owner and seed (D12).
+    /// Onboarding: "Set up this home" — become the owner and seed (D12),
+    /// after the rider's one guarded look for an existing household. The
+    /// guard can only interpose a question; every non-proof outcome
+    /// (no zone, offline, timeout, error) proceeds exactly as before.
     func setUpThisHome() async {
+        isCheckingForHousehold = true
+        let result = await SeedingGuard.discoveryResult {
+            try await SharedZoneDiscovery.discoverHouseholdZone(
+                in: CKContainer(identifier: ShareAcceptanceModel.containerIdentifier))
+        }
+        isCheckingForHousehold = false
+        switch SeedingGuard.decision(result) {
+        case .offerJoin(let zone):
+            discoveredHouseholdOffer = zone
+        case .proceedToOwner:
+            await becomeOwnerAndSeed()
+        }
+    }
+
+    /// The offer's "Join Household": the discovered-zone machinery (M6.2)
+    /// does the rest — same decision table, phases, and one-transaction
+    /// wipe-and-adopt as an invite.
+    func joinDiscoveredHousehold() async {
+        guard let zone = discoveredHouseholdOffer else { return }
+        discoveredHouseholdOffer = nil
+        await ShareAcceptanceModel.shared.adopt(discovered: zone)
+    }
+
+    /// The offer's explicit "start a separate household anyway" — the
+    /// pre-rider path, now a deliberate choice instead of a default.
+    func setUpThisHomeAnyway() async {
+        discoveredHouseholdOffer = nil
+        await becomeOwnerAndSeed()
+    }
+
+    func dismissDiscoveredOffer() {
+        discoveredHouseholdOffer = nil
+    }
+
+    private func becomeOwnerAndSeed() async {
         do {
             try await database.performLocalMutation { mutation in
                 try AppBootstrap.becomeOwner(mutation)

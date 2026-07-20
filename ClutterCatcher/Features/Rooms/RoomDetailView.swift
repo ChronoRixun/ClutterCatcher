@@ -68,7 +68,14 @@ struct RoomDetailView: View {
         .sheet(item: $printingOffer, onDismiss: { labelNudge.dismiss() }) { offer in
             LabelSheetView(preselectedContainerIDs: [offer.containerID])
         }
-        .task {
+        // Keyed to the room: a DL5 stack-replace can swap this screen's
+        // route in place, keeping its structural identity — an unkeyed task
+        // would keep observing the OLD room (M7b's catalogDestinations note).
+        .task(id: roomID) {
+            if roomLoaded {
+                room = nil
+                roomLoaded = false
+            }
             do {
                 for try await value in roomRepository.observeRoom(id: roomID) {
                     let hadRoom = room != nil
@@ -83,7 +90,7 @@ struct RoomDetailView: View {
                 Log.data.error("Room observation failed: \(String(describing: error))")
             }
         }
-        .task {
+        .task(id: roomID) {
             do {
                 for try await value in containerRepository.observeContainers(inRoom: roomID) {
                     containers = value

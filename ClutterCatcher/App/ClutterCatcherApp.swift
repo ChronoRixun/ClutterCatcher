@@ -1,3 +1,4 @@
+import AppIntents
 import SwiftUI
 import UIKit
 
@@ -8,6 +9,9 @@ struct ClutterCatcherApp: App {
 
     private let bootResult: Result<(AppDatabase, BootstrapState), Error>
     private let syncCoordinator: SyncCoordinator?
+    /// Mirrors the catalog into Core Spotlight (M7b, U8) — derived local
+    /// state, observation-fed, nil on boot failure.
+    private let spotlightIndexer: SpotlightIndexer?
     /// The on-device photo cache (M6), injected so views import/display through
     /// the same `Application Support/Photos` root the coordinator writes to.
     private let photoStore: PhotoStore
@@ -43,10 +47,16 @@ struct ClutterCatcherApp: App {
             // functional before (and without) any CloudKit involvement.
             let coordinator = SyncCoordinator(database: boot.0, status: status)
             syncCoordinator = coordinator
+            spotlightIndexer = SpotlightIndexer(
+                database: boot.0, photoStore: try? PhotoStore.onDisk())
             _appModel = State(initialValue: AppModel(
                 database: boot.0, coordinator: coordinator, initialState: boot.1))
+            // U9: the intent entity queries resolve against the same
+            // database the app runs on.
+            AppDependencyManager.shared.add(dependency: boot.0)
         case .failure(let error):
             syncCoordinator = nil
+            spotlightIndexer = nil
             _appModel = State(initialValue: nil)
             Log.app.critical("Database bootstrap failed: \(String(describing: error))")
         }
@@ -82,6 +92,7 @@ struct ClutterCatcherApp: App {
                                 }
                                 await syncCoordinator.start()
                             }
+                            await spotlightIndexer?.start()
                         }
                 }
             case .failure(let error):

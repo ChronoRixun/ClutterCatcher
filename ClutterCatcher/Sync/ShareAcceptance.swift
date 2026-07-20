@@ -192,6 +192,14 @@ enum ParticipantBootstrap {
             return
         }
         guard let discovered else { return } // .waitForInvite
+        await adopt(discovered: discovered)
+    }
+
+    /// Joins an already-discovered zone through the same decision table and
+    /// phases as an invite. Reached from `discoverExistingHousehold` and
+    /// from the seeding guard's "join it instead" (M7b rider).
+    func adopt(discovered: DiscoveredHouseholdZone) async {
+        guard let database else { return }
         do {
             let disposition = try await database.writer.read { db in
                 try AcceptanceGuard.disposition(db)
@@ -231,7 +239,9 @@ enum ParticipantBootstrap {
         phase = .idle
     }
 
-    private static let containerIdentifier = "iCloud.com.rixun.cluttercatcher"
+    /// The app's one CloudKit container — also the seeding guard's discovery
+    /// target (M7b rider).
+    static let containerIdentifier = "iCloud.com.rixun.cluttercatcher"
 
     private func performJoin() async {
         guard let pendingJoin, let database, let coordinator else { return }

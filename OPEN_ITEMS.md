@@ -1002,6 +1002,148 @@ SharedZoneBootstrapTests (4) and AdaptiveLayoutTests (3).
   sandbox's own catalog (never the live iPhone 17 sim — DL27's rule held;
   all interactive work ran on the fresh CC-M62-iPad sandbox).
 
+### 2026-07-20 — Run 11 (M7b, "The House That Knows" — local Mac, green build)
+
+Slice per `planning/m7-polish-plan.md` §3 (M7b): U8–U10 + U13–U14 under
+U11/U12, plus the Run 10 seeding-guard rider. Zero schema, zero sync
+surface held by construction and by measurement: no migration, the DL20
+write paths and `RecordMapper`/`SyncCoordinator` untouched, `Sync/` touched
+only by the rider (new `SeedingGuard.swift`; `ShareAcceptance` grew an
+`adopt(discovered:)` seam the rider reuses; `DiscoveredHouseholdZone`
+became Equatable for the tests). One `project.yml` change: the U10 widget
+extension target. Built and tested under stable Xcode 26.6 —
+`scripts/test.sh` green on BOTH families: **248 tests / 29 suites** on
+iPhone 17 and on iPad Pro 11-inch (M5), both iOS 26.5 (four new suites:
+CategoryBrowseTests, SpotlightIndexTests, IntentResolutionTests,
+SeedingGuardTests; DeepLinkTests +6). Sandbox-sim session on
+CC-M7a-Sandbox (never the live iPhone 17 sim) ended byte-stable:
+`pending_changes` 50 → 50 and `sync_events` 0 → 0 with **identical table
+dump SHA-256s** across the whole interactive session — category browsing,
+both search paths, three highlight deep links, Spotlight pull-down search
++ a cold-start result tap, and a Shortcuts-app visit moved nothing
+(receipts in `artifacts/m7b/`; the 50 includes a documented pre-baseline
+catalog fixture written to give browsing/search something to find).
+
+- **DL85 — U13 shape.** The browse view's rows are *items* (room section
+  headers, container as each row's subtitle — consecutive rows sharing it
+  read as the room → container grouping), each row a NavigationLink to its
+  container with that item as the U14 highlight. Grouping is a pure
+  ordered pass (`CategoryBrowse.grouped`) over one query ordered
+  room `sort_order` → container name → item name. CategoriesView rows
+  became NavigationLinks; **editing moved to trailing swipe** (Edit +
+  Delete replacing `onDelete` — same swipe-only delete semantics as
+  before), and the Categories *sheet* navigates within its own stack
+  (`catalogDestinations()` on the sheet's NavigationStack) rather than
+  dismissing to the catalog. Search's category rows are real links to the
+  same route. Header chips echo container detail: item count in the
+  category's own color, room count in accent2.
+- **DL86 — U14 mechanics.** `Route.container` gained `highlightItemID`
+  (a `static func container(id:)` keeps plain call sites unchanged —
+  enum cases can't default associated values); container URLs may carry
+  `?item=<uuid>` (parsed case-insensitively, DL1-normalized, malformed
+  ignored — printed labels never carry it, so the QR contract is
+  untouched). The emphasis is the theme's accent at 25% as the matched
+  row's `listRowBackground` — the Inside section's row surfaces resolve
+  through one helper so the override can't fight `themedRow()` — with
+  scroll-to-center after a 300 ms layout beat and a settle-away at
+  ~2.1 s, all through `motion.animation(.settle, reduceMotion:)` (the
+  plain fade under Reduce Motion — the existing DL60 seam, U12). The
+  choreography state lives on the screen, not the row (DL62).
+- **DL87 — Stack-replace kept the old destination alive (real bug, found
+  live; latent on main).** With `navigationDestination(for: Route.self)`,
+  a DL5 stack-replace that swaps the top route swaps the view VALUE but
+  keeps its *structural identity* — plain `.task {}` observations and
+  @State survive, so the screen kept showing the OLD container (verified:
+  two successive item deep links; the second never re-observed). Latent on
+  main for Camera-scan-while-viewing-a-container. Fix: the three catalog
+  destination views key their observation tasks with `.task(id:
+  <entityID>)` and reset their loaded state on change; the highlight task
+  keys on the target id. The cleaner `.id(route)` on the destination
+  **segfaults** the iOS 26.5 sim runtime (EXC_BAD_ACCESS in generic-
+  metadata instantiation, reproducible — the DL62 family of runtime
+  landmines), so identity is keyed at the task level instead.
+- **DL88 — U8 seam: observation-driven, launch-rebuilt, diffed.** The
+  chosen seam is one `ValueObservation` over a full searchable snapshot
+  (`SpotlightCatalog.entries`) — both DL20 write paths end in a commit,
+  and a commit is all the observation needs, so LocalMutation and
+  ServerApply feed the index without either knowing it exists, and an
+  index failure structurally *cannot* touch a catalog write. First
+  emission after launch clears and rebuilds (convergence no matter what
+  an earlier run left); after that a pure diff prunes deletions and
+  re-indexes only changed entries — reset (DL33 wipe → empty snapshot)
+  and join fall out of the same diff, and a participant degrade (catalog
+  kept, DL34) correctly keeps its index. Writes are batched (200) and
+  failure-tolerant: the diff baseline advances only on a fully-applied
+  pass, so failed batches retry on the next change. Identifiers ARE the
+  deep links (`cluttercatcher://c/<uuid>`, items adding `?item=` — U14),
+  so a tapped result is just `router.open(url:)`, the tested DL5 path;
+  containers and items are indexed per U8's letter (categories are
+  findable through their items' keywords and browse in-app — flagged
+  below). Thumbnails resolve from the photo cache at index time; a photo
+  whose bytes arrive later stays a text-only result until the next
+  change/launch touches its entry (accepted, self-healing). Item-name
+  changes also re-donate the U9 App Shortcut parameters.
+- **DL89 — U9 shape, and a sim signing limitation.** Entity resolution is
+  a pure layer (`ItemIntentResolution`: exact → prefix → substring, each
+  alphabetical, LIKE-escaped) the AppIntents types wrap thinly;
+  `AppDatabase` reaches the queries via `AppDependencyManager`. Find
+  Item's dialog is exactly the location phrase ("Holiday Bins in the
+  Garage — 5 items"; possessive room names drop "the"), and both intents
+  open the app through `OpenURLIntent` + the deep-link vocabulary — no
+  new navigation plumbing, DL73 semantics test-pinned. Verified in-sim:
+  both actions appear under ClutterCatcher in the Shortcuts composer, the
+  Open Scanner App Shortcut tile renders. **Running** an App Shortcut on
+  the simulator fails ("Unable to run App Shortcut"): linkd can't derive
+  a team identity from a "Sign to Run Locally" build ("Unable to get
+  teamId from com.rixun.cluttercatcher") — a sim-signing limitation, not
+  app behavior; the run/Siri half rides Owen's device gate, where builds
+  carry the real team.
+- **DL90 — U10 XcodeGen shape.** `ClutterCatcherControls`: type
+  `app-extension`, `NSExtensionPointIdentifier
+  com.apple.widgetkit-extension`, embedded via a target dependency with
+  `embed: true`, same team/signing family, `CFBundleShortVersionString`/
+  `CFBundleVersion` mirroring the app's (embedded-extension validation
+  requires the match). Content is one file: a `WidgetBundle` hosting a
+  `ControlWidget` button whose intent (`openAppWhenRun` +
+  `OpenURLIntent("cluttercatcher://scan")`) is defined in the extension —
+  dependency-free by design (no GRDB, no app code; the URL literal is the
+  frozen M7a contract). Builds and embeds clean on both families;
+  pressing the control is on Owen's device VERIFY (Control Center).
+- **DL91 — Seeding-guard choices.** Timeout: **4 seconds** (generous for
+  a warm CloudKit round trip; an offline first owner barely notices).
+  Timeout/offline/error collapse into one `unavailable` on purpose —
+  only *proof* of a household interposes. The interposed dialog offers
+  "Join My Household" (primary; hands the already-discovered zone to
+  `ShareAcceptanceModel.adopt(discovered:)` — the M6.2 machinery, same
+  decision table, phases, and one-transaction wipe-and-adopt) and an
+  explicit destructive-styled "Start a Separate Catalog Anyway" — the
+  guard warns, it never forbids, keeping the never-strand principle even
+  against a false positive. Both onboarding screens share the dialog via
+  one modifier; the escape hatch disables during the ≤4 s check. Live
+  sim walkthrough covered the unavailable→proceed state (fresh sim, no
+  iCloud: tap → brief check → seeded owner catalog); found/no-zone are
+  seam-tested (SeedingGuardTests drive the race with injected
+  discoveries, including a 30 s hang beaten by a 50 ms timeout). The
+  found-zone dialog live is Owen's check, per the kickoff.
+- **DL92 — Sandbox field notes (extends DL74/DL77/DL83).** (a) On this
+  iPhone sandbox `idb ui swipe` silently no-ops WITHOUT `--duration`;
+  with `--duration 0.3+` it's reliable — the DL77 rule refined. (b) Every
+  text-injection channel is still dead there (DL74b reconfirmed);
+  software-keyboard **tap-typing** (⌘⇧K to disconnect the hardware
+  keyboard first) is the dependable path, and it works fine in the
+  springboard's Spotlight field too. (c) No route into the springboard
+  Home worked (idb HOME button, ⌘⇧H, Device-menu click) — `simctl
+  terminate` is the honest way off the app, and it turned the Spotlight
+  test into a cold-start deep-link proof. (d) Spotlight itself works on
+  the sim: pull-down search indexed our items ("Wreath — Kitchen →
+  Holiday Bins" under a ClutterCatcher header) and tapping it launched
+  the app into the highlighted container. (e) The app's data-container
+  path rotates on reinstall — re-resolve before poking the DB. (f) The
+  browse/search fixture was written straight into the sandbox DB (items +
+  matching `pending_changes` rows, timestamps in GRDB's format) *before*
+  the receipts baseline — documented, so the byte-stable claim measures
+  exactly the interactive session.
+
 ## 2026-07-19 — Planning: M7 "Polish & The House That Knows" (with Owen)
 
 Born from the post-M4b polish review. New milestone, spec'd and
@@ -1061,6 +1203,19 @@ found real gaps; Owen ruled on placement:
   needed. Bootstrap code only; zero schema, zero contract change.
 
 ## Questions for Owen
+
+### Run 11 (M7b)
+
+1. **Should categories be Spotlight-indexed too?** The M7 plan's summary
+   line says "containers/items/categories" but U8's decision text names
+   containers and items only — Run 11 shipped U8's letter (DL88). Interim
+   answer (most reversible): **not indexed** — a category is still
+   findable in system search through its items (the category name rides
+   every item entry's keywords: searching "Seasonal" surfaces the Seasonal
+   items), and the browse view is one tap in-app. Indexing categories
+   directly would need a category deep-link URL form (`Route.category`
+   is in-app-only today) — a small, self-contained addition if the
+   family's muscle memory turns out to be "search the category name."
 
 ### Run 10 (M6.2)
 

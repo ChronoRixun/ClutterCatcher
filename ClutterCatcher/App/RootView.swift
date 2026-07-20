@@ -1,3 +1,4 @@
+import CoreSpotlight
 import SwiftUI
 
 struct RootView: View {
@@ -60,6 +61,16 @@ struct RootView: View {
             if acceptance.phase == .joining {
                 JoiningOverlay()
             }
+        }
+        // U8: a tapped Spotlight result. Its identifier IS its deep link, so
+        // this is the same DL5 stack-replacing path a QR scan takes (with
+        // U14's highlight riding the item results' query string).
+        .onContinueUserActivity(CSSearchableItemActionType) { activity in
+            guard let identifier = activity.userInfo?[CSSearchableItemActivityIdentifier] as? String,
+                  let url = URL(string: identifier) else {
+                return
+            }
+            router.open(url: url)
         }
     }
 
@@ -141,13 +152,25 @@ private struct JoiningOverlay: View {
 /// The shared destination table for catalog routes. Every `NavigationStack`
 /// that can show rooms/containers applies this once.
 extension View {
+    // NOTE (M7b): a DL5 stack-replace can swap one route for another at the
+    // same stack position, which KEEPS the destination view's structural
+    // identity — plain `.task {}` observations and @State silently survive
+    // into the new route and the screen keeps showing the old destination.
+    // (Found in the M7b walkthrough: two successive item deep links; latent
+    // on main for Camera-scan-while-on-a-container.) The destination views
+    // therefore key their observation tasks to their entity id
+    // (`.task(id:)`) and reset their loaded state when it changes. An
+    // `.id(route)` here would be the cleaner fix, but it segfaults the
+    // iOS 26.5 sim runtime's metadata instantiation (the DL62 family).
     func catalogDestinations() -> some View {
         navigationDestination(for: Route.self) { route in
             switch route {
             case .room(let id):
                 RoomDetailView(roomID: id)
-            case .container(let id):
-                ContainerDetailView(containerID: id)
+            case .container(let id, let highlightItemID):
+                ContainerDetailView(containerID: id, highlightItemID: highlightItemID)
+            case .category(let id):
+                CategoryBrowseView(categoryID: id)
             }
         }
     }

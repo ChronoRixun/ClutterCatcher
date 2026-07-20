@@ -5,6 +5,7 @@
 ClutterCatcher/Info.plist
 ClutterCatcher/ClutterCatcher.entitlements
 ClutterCatcherTests/Info.plist
+ClutterCatcherControls/Info.plist
 build/
 DerivedData/
 *.xcresult

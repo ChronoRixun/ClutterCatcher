@@ -98,7 +98,9 @@ struct SearchView: View {
             if !results.items.isEmpty {
                 Section("Items") {
                     ForEach(results.items) { hit in
-                        NavigationLink(value: Route.container(id: hit.item.containerId)) {
+                        // U14: land on the container scrolled to the match.
+                        NavigationLink(value: Route.container(
+                            id: hit.item.containerId, highlightItemID: hit.item.id)) {
                             HStack(spacing: Tokens.spacingM) {
                                 if let ref = hit.item.photoAssetRef {
                                     PhotoThumbnailView(ref: ref, size: 40)
@@ -123,12 +125,16 @@ struct SearchView: View {
             }
             if !results.categories.isEmpty {
                 Section("Categories") {
+                    // U13: category results finally go somewhere — the
+                    // browse view, not a dead row.
                     ForEach(results.categories) { category in
-                        HStack(spacing: Tokens.spacingM) {
-                            Circle()
-                                .fill(Tokens.categoryColor(for: category.colorToken))
-                                .frame(width: 12, height: 12)
-                            Text(category.name)
+                        NavigationLink(value: Route.category(id: category.id)) {
+                            HStack(spacing: Tokens.spacingM) {
+                                Circle()
+                                    .fill(Tokens.categoryColor(for: category.colorToken))
+                                    .frame(width: 12, height: 12)
+                                Text(category.name)
+                            }
                         }
                     }
                 }
