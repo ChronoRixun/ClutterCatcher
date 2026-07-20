@@ -844,12 +844,14 @@ found real gaps; Owen ruled on placement:
 
 ### Run 6 (M4a)
 
-1. **Theme surface coverage beyond the touch-list (DL58).** Family, Labels,
-   Categories, Sync Activity, and Onboarding currently keep system
-   backgrounds in every theme (tint + rounded type do apply). Fold full
-   theming of those screens into M4b, or keep them system forever? Interim:
-   as shipped (touch-list only) — the mechanical extension is two lines per
-   screen whenever you decide.
+1. ~~**Theme surface coverage beyond the touch-list (DL58).**~~ **Resolved
+   (Owen, 2026-07-20): theme everything.** Family, Labels, Categories, and
+   Sync Activity get full theming (`themedScreen()`/`themedRow()`);
+   Onboarding alone stays system — it renders before anyone has picked a
+   theme, so theming it is dead code. Dispatched as its own mini-run
+   **M4c** (`planning/m4c-kickoff-prompt.md`), ahead of M7b/M6.2 — both of
+   whose kickoffs already defer to this ruling. Does not disturb M4's human
+   gate (soak continues; Shelley's sign-off still closes M4).
 
 All four Run 4 questions resolved (Owen, 2026-07-19, post-VERIFY-start):
 
