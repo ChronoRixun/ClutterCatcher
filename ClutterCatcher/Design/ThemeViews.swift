@@ -43,6 +43,31 @@ private struct ThemedRowModifier: ViewModifier {
     }
 }
 
+// MARK: - Drop-in (Pop!'s save reward, §6 M4b)
+
+/// Pop!'s "drop-in" squash-settle: the inserted row lands slightly wide and
+/// compressed, then un-squashes — the overshoot comes from the theme's
+/// bouncy settle spring, not from this modifier.
+private struct SquashModifier: ViewModifier {
+    let active: Bool
+
+    func body(content: Content) -> some View {
+        content
+            .scaleEffect(x: active ? 1.03 : 1, y: active ? 0.6 : 1, anchor: .top)
+            .opacity(active ? 0 : 1)
+    }
+}
+
+extension AnyTransition {
+    // Computed, not stored: AnyTransition isn't Sendable, so a static
+    // stored property trips strict concurrency.
+    static var dropInSquash: AnyTransition {
+        .modifier(
+            active: SquashModifier(active: true),
+            identity: SquashModifier(active: false))
+    }
+}
+
 // MARK: - Chips (T12)
 
 /// A capsule chip whose tint is *derived*: the base color at ~13% opacity

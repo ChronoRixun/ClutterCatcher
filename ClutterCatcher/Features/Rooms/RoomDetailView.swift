@@ -13,6 +13,9 @@ struct RoomDetailView: View {
     @State private var containers: [ContainerListEntry] = []
     @State private var isAddingContainer = false
     @State private var isEditingRoom = false
+    /// Fen's ear-perk on the empty state's primary button (§5 M4b — the
+    /// same "Add Your First Room" pattern; Cozy and Pop! only).
+    @State private var fenPerkTrigger = 0
 
     private var roomRepository: RoomRepository { RoomRepository(database: appDatabase) }
     private var containerRepository: ContainerRepository { ContainerRepository(database: appDatabase) }
@@ -82,7 +85,11 @@ struct RoomDetailView: View {
                 ContentUnavailableView {
                     if let fenColors = themeStore.theme.fenColors {
                         VStack(spacing: Tokens.spacingM) {
-                            FenFigure(colors: fenColors)
+                            FenFigure(
+                                colors: fenColors,
+                                style: themeStore.theme.fenStyle,
+                                glow: themeStore.theme.fenGlow,
+                                earPerkTrigger: fenPerkTrigger)
                                 .frame(height: 88)
                             Text("No Containers")
                         }
@@ -92,8 +99,16 @@ struct RoomDetailView: View {
                 } description: {
                     Text("Add the bins, drawers, and shelves that live in \(room.name).")
                 } actions: {
-                    Button("Add Container") { isAddingContainer = true }
-                        .buttonStyle(.borderedProminent)
+                    Button("Add Container") {
+                        // Ear-perk where Fen is on screen (Cozy/Pop! —
+                        // the Arcade sprite doesn't perk).
+                        switch themeStore.theme.fenPresence {
+                        case .lightTouch, .medium: fenPerkTrigger += 1
+                        case .none, .fullSprite: break
+                        }
+                        isAddingContainer = true
+                    }
+                    .buttonStyle(.borderedProminent)
                 }
             } else {
                 List {

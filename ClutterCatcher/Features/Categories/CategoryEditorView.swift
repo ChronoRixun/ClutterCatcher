@@ -63,6 +63,7 @@ struct CategoryEditorView: View {
                 } else {
                     try await repository.createCategory(name: name, colorToken: colorToken)
                 }
+                Haptics.saveSoftImpact() // T10 — every theme
                 dismiss()
             } catch {
                 Log.data.error("Category save failed: \(String(describing: error))")

@@ -1,17 +1,32 @@
 import SwiftUI
 
+/// §6 cross-cutting (M4b): the staggered spring-settle runs once per launch —
+/// this flag is deliberately process-lived, not view-lived, so re-visiting
+/// the tab never replays it.
+@MainActor
+private enum RoomsFirstLoad {
+    static var hasStaggered = false
+}
+
 /// Home: every room in the house, with container counts. Also the entry point
 /// for label printing and the Categories screen.
 struct RoomsHomeView: View {
     @Environment(\.appDatabase) private var appDatabase
     @Environment(Router.self) private var router
     @Environment(ThemeStore.self) private var themeStore
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     @State private var entries: [RoomListEntry] = []
     @State private var entriesLoaded = false
     @State private var isAddingRoom = false
     @State private var isShowingLabelSheet = false
     @State private var isShowingCategories = false
+    /// Fen's ear-perk on the empty state's primary button (§5 M4b —
+    /// Cozy and Pop!).
+    @State private var fenPerkTrigger = 0
+    /// false only while this launch's one staggered load-in is pending;
+    /// rows render hidden for a beat, then settle in with per-row delays.
+    @State private var rowsArrived = true
     /// Rooms awaiting delete confirmation — deleting a room cascades to all
     /// of its containers and items, so a bare swipe must not be enough.
     @State private var pendingDeletion: [RoomListEntry] = []
@@ -26,11 +41,16 @@ struct RoomsHomeView: View {
                     ProgressView()
                 } else if entries.isEmpty {
                     // §4 empty-state refresh; Fen appears where the theme's
-                    // presence dial says so (§5), blinking idly.
+                    // presence dial says so (§5), blinking idly — Arcade as
+                    // the pixel sprite (M4b).
                     ContentUnavailableView {
                         if let fenColors = themeStore.theme.fenColors {
                             VStack(spacing: Tokens.spacingM) {
-                                FenFigure(colors: fenColors)
+                                FenFigure(
+                                    colors: fenColors,
+                                    style: themeStore.theme.fenStyle,
+                                    glow: themeStore.theme.fenGlow,
+                                    earPerkTrigger: fenPerkTrigger)
                                     .frame(height: 88)
                                 Text("Let's give everything a home")
                             }
@@ -40,8 +60,11 @@ struct RoomsHomeView: View {
                     } description: {
                         Text("Add the rooms of your house, then fill them with bins, drawers, and shelves.")
                     } actions: {
-                        Button("Add Your First Room") { isAddingRoom = true }
-                            .buttonStyle(.borderedProminent)
+                        Button("Add Your First Room") {
+                            perkFenIfPresent()
+                            isAddingRoom = true
+                        }
+                        .buttonStyle(.borderedProminent)
                     }
                 } else {
                     roomList
@@ -111,12 +134,36 @@ struct RoomsHomeView: View {
         .task {
             do {
                 for try await value in repository.observeRoomList() {
+                    // The stagger decision rides in front of the first
+                    // non-empty render (§6: first appearance per launch).
+                    if !entriesLoaded, !value.isEmpty, !RoomsFirstLoad.hasStaggered {
+                        RoomsFirstLoad.hasStaggered = true
+                        rowsArrived = false
+                    }
                     entries = value
                     entriesLoaded = true
+                    if !rowsArrived {
+                        Task { @MainActor in
+                            // One beat hidden, then the delayed settles run.
+                            try? await Task.sleep(for: .milliseconds(60))
+                            rowsArrived = true
+                        }
+                    }
                 }
             } catch {
                 Log.data.error("Room list observation failed: \(String(describing: error))")
             }
+        }
+    }
+
+    /// §5 M4b: ear-perk on primary-button press where Fen is on screen —
+    /// Cozy (light touch) and Pop! (medium) only; the Arcade sprite doesn't
+    /// perk, per the kickoff's theme list. FenFigure suppresses the
+    /// animation under Reduce Motion.
+    private func perkFenIfPresent() {
+        switch themeStore.theme.fenPresence {
+        case .lightTouch, .medium: fenPerkTrigger += 1
+        case .none, .fullSprite: break
         }
     }
 
@@ -140,10 +187,20 @@ struct RoomsHomeView: View {
                     .listRowSeparator(.hidden)
             }
             Section {
-                ForEach(entries) { entry in
+                ForEach(Array(entries.enumerated()), id: \.element.id) { index, entry in
                     NavigationLink(value: Route.room(id: entry.room.id)) {
                         RoomRow(entry: entry)
                     }
+                    // §6 cross-cutting: the once-per-launch staggered
+                    // settle (~30 ms/row). Under Reduce Motion the offset
+                    // and stagger vanish — one plain fade.
+                    .opacity(rowsArrived ? 1 : 0)
+                    .offset(y: rowsArrived || reduceMotion ? 0 : 10)
+                    .animation(
+                        themeStore.theme.motion.animation(.settle, reduceMotion: reduceMotion)
+                            .delay(MotionPersonality.staggerDelay(
+                                forIndex: index, reduceMotion: reduceMotion)),
+                        value: rowsArrived)
                 }
                 .onMove { source, destination in
                     var reordered = entries

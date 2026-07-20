@@ -19,24 +19,31 @@ struct ScanView: View {
         case lookupFailed
     }
 
-    /// A resolved container scan, driving the §4 "Found it!" card. The card
-    /// is the static M4a version; its pop/confetti/Fen-peek personality is
-    /// M4b. Room payloads still navigate immediately (rooms have no card in
-    /// the design), as do Camera-app deep links, which never pass through
-    /// this screen.
+    /// A resolved container scan, driving the §4 "Found it!" card
+    /// (ScanSuccessCard owns the per-theme personality). Room payloads still
+    /// navigate immediately (rooms have no card in the design), as do
+    /// Camera-app deep links, which never pass through this screen.
     private struct ScanSuccess {
         let containerID: String
         let name: String
         let roomName: String
         let itemCount: Int
+        /// Fresh per presentation — the entrance animation and the confetti
+        /// one-shot guard key off it, so a re-scan is a new moment.
+        let presentationID = UUID()
     }
 
     @Environment(\.appDatabase) private var appDatabase
     @Environment(Router.self) private var router
     @Environment(ThemeStore.self) private var themeStore
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     @State private var scanProblem: ScanProblem?
     @State private var scanSuccess: ScanSuccess?
+    @State private var confettiGuard = ConfettiGuard()
+    /// Which presentation's confetti is in flight — owned here, like the
+    /// guard, so it survives the card row being recreated mid-moment.
+    @State private var confettiBurstID: UUID?
     @State private var manualEntry = ""
     @State private var cameraAccess: CameraAccess = .undetermined
 
@@ -62,6 +69,17 @@ struct ScanView: View {
         }
         .task {
             await requestCameraAccessIfNeeded()
+            #if DEBUG
+            // M4b capture harness: auto-fire a scan on the sim, where
+            // typing/pasting into the manual field is unreliable (DL27).
+            // DEBUG-only and env-gated — inert everywhere else.
+            if let code = ProcessInfo.processInfo.environment["CC_AUTOSCAN_CODE"] {
+                let delay = Double(
+                    ProcessInfo.processInfo.environment["CC_AUTOSCAN_DELAY"] ?? "") ?? 2
+                try? await Task.sleep(for: .seconds(delay))
+                handle(scanned: code)
+            }
+            #endif
         }
     }
 
@@ -99,14 +117,27 @@ struct ScanView: View {
                 } else if let scanProblem {
                     problemCard(for: scanProblem)
                 } else {
-                    Text("Point at a ClutterCatcher label")
-                        .font(.callout)
-                        .padding(.horizontal, Tokens.spacingL)
-                        .padding(.vertical, Tokens.spacingS)
-                        .background(.thinMaterial, in: Capsule())
-                        .padding(.bottom, Tokens.spacingL)
+                    VStack(spacing: Tokens.spacingS) {
+                        // §5: Arcade's full presence puts the pixel sprite in
+                        // Scan itself, keeping the viewfinder company.
+                        if themeStore.theme.fenPresence == .fullSprite,
+                           let fenColors = themeStore.theme.fenColors {
+                            FenFigure(
+                                colors: fenColors,
+                                style: themeStore.theme.fenStyle,
+                                glow: themeStore.theme.fenGlow)
+                                .frame(height: 44)
+                        }
+                        Text("Point at a ClutterCatcher label")
+                            .font(.callout)
+                            .padding(.horizontal, Tokens.spacingL)
+                            .padding(.vertical, Tokens.spacingS)
+                            .background(.thinMaterial, in: Capsule())
+                    }
+                    .padding(.bottom, Tokens.spacingL)
                 }
             }
+            .animation(cardEntranceAnimation, value: scanSuccess?.presentationID)
         }
     }
 
@@ -130,7 +161,22 @@ struct ScanView: View {
             } else {
                 Section {
                     ContentUnavailableView {
-                        Label("Camera Scanning Unavailable", systemImage: "qrcode.viewfinder")
+                        // §5: Arcade's pixel sprite keeps its Scan presence
+                        // in the fallback too, same pattern as the empty
+                        // states.
+                        if themeStore.theme.fenPresence == .fullSprite,
+                           let fenColors = themeStore.theme.fenColors {
+                            VStack(spacing: Tokens.spacingM) {
+                                FenFigure(
+                                    colors: fenColors,
+                                    style: themeStore.theme.fenStyle,
+                                    glow: themeStore.theme.fenGlow)
+                                    .frame(height: 72)
+                                Text("Camera Scanning Unavailable")
+                            }
+                        } else {
+                            Label("Camera Scanning Unavailable", systemImage: "qrcode.viewfinder")
+                        }
                     } description: {
                         Text("\(reason) Paste a label code below instead — either the cluttercatcher:// link or the bare UUID.")
                     }
@@ -149,6 +195,7 @@ struct ScanView: View {
             .themedRow()
         }
         .themedScreen()
+        .animation(cardEntranceAnimation, value: scanSuccess?.presentationID)
     }
 
     // MARK: Resolution
@@ -205,31 +252,43 @@ struct ScanView: View {
         }
     }
 
-    /// §4: the full-card scan-success state — static in M4a, personality in
-    /// M4b. "Scan Again" is the not-that-bin escape; without it the paused
-    /// scanner would have no way back.
+    // MARK: Card entrance (§6 M4b)
+
+    /// nil for Classic and Dusk Redux — their "standard transition" is the
+    /// card presenting exactly as it did in M4a, and nil also disables any
+    /// inherited animation (motion's structural no-op).
+    private var cardEntranceAnimation: Animation? {
+        guard themeStore.theme.motion.cardEntrance != nil else { return nil }
+        return themeStore.theme.motion.animation(.cardEntrance, reduceMotion: reduceMotion)
+    }
+
+    /// §4: the full-card scan-success state. ScanSuccessCard carries the
+    /// per-theme reward personality; "Scan Again" remains the not-that-bin
+    /// escape (DL57 — semantics unchanged).
+    @ViewBuilder
     private func successCard(for success: ScanSuccess) -> some View {
-        VStack(spacing: Tokens.spacingM) {
-            Text("Found it!")
-                .font(.title2.bold())
-            Text("\(success.name) · \(success.roomName) · ^[\(success.itemCount) item](inflect: true)")
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
-                .multilineTextAlignment(.center)
-            Button("Open It Up") {
+        let card = ScanSuccessCard(
+            name: success.name,
+            roomName: success.roomName,
+            itemCount: success.itemCount,
+            presentationID: success.presentationID,
+            confettiGuard: $confettiGuard,
+            confettiBurstID: $confettiBurstID,
+            onOpen: {
                 scanSuccess = nil
                 router.navigate(to: .container(id: success.containerID))
-            }
-            .buttonStyle(.borderedProminent)
-            Button("Scan Again") {
+            },
+            onScanAgain: {
                 scanSuccess = nil
-            }
-            .font(.subheadline)
+            })
+            .padding(Tokens.spacingL)
+        if cardEntranceAnimation == nil {
+            card
+        } else if reduceMotion {
+            card.transition(.opacity)
+        } else {
+            card.transition(.scale(scale: 0.85).combined(with: .opacity))
         }
-        .padding(Tokens.spacingL)
-        .frame(maxWidth: .infinity)
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: Tokens.cornerRadius))
-        .padding(Tokens.spacingL)
     }
 
     private func problemCard(for problem: ScanProblem) -> some View {
