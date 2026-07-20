@@ -558,6 +558,19 @@ kickoff.
   tile. Both verified in-sim after the fix; neither is testable in the
   hosted suite (presentation + system icon state).
 
+### 2026-07-19 — M4a gate closed
+
+- **Owen's on-device pass passed** — the branch build installed on both
+  phones; themes verified working and confirmed as **independent per-device
+  choices** (the T2 zero-sync-surface guarantee held in the wild, Sync
+  Activity quiet). `feat/themes-m4a` merged to `main` (`--no-ff`, 965b068).
+  The redundant repo-root `cc-m4-design-assets.zip` and
+  `icons_contact_sheet.png` (never tracked; `design/` is the committed copy)
+  were deleted. **M4b (motion + Fen personality + the family gate) is next**
+  — kickoff at `planning/m4b-kickoff-prompt.md`; dispatch on
+  `feat/motion-m4b` off `main`. The DL58 coverage question below gates part
+  of its scope.
+
 ## Questions for Owen
 
 ### Run 6 (M4a)
